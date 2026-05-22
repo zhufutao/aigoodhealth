@@ -200,56 +200,64 @@ async function updateMaterial({ request, env }: PagesContext, id: number) {
 }
 
 async function parseMaterial({ env }: PagesContext, id: number) {
-  const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(id).first<any>();
-  if (!material) return json({ error: "素材不存在" }, 404);
-  const parsed = await parseWithAi(env, material);
-  await env.DB.prepare(`
-    UPDATE materials SET summary=?, keywords=?, topic_tags=?, target_users=?, food_ingredients=?,
-      suitable_for_recipe=?, suitable_for_poster=?, suitable_for_xiaohongshu=?, suitable_for_wechat_article=?,
-      risk_level=?, risk_notes=?, official_match_keywords=?, status='parsed', updated_at=CURRENT_TIMESTAMP
-    WHERE id=?
-  `).bind(
-    parsed.summary,
-    JSON.stringify(parsed.keywords),
-    JSON.stringify(parsed.topic_tags),
-    JSON.stringify(parsed.target_users),
-    JSON.stringify(parsed.food_ingredients),
-    parsed.suitable_for_recipe ? 1 : 0,
-    parsed.suitable_for_poster ? 1 : 0,
-    parsed.suitable_for_xiaohongshu ? 1 : 0,
-    parsed.suitable_for_wechat_article ? 1 : 0,
-    parsed.risk_level,
-    JSON.stringify(parsed.risk_notes),
-    JSON.stringify(parsed.official_match_keywords),
-    id,
-  ).run();
-  return json({ item: parsed });
+  try {
+    const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(id).first<any>();
+    if (!material) return json({ error: "素材不存在" }, 404);
+    const parsed = await parseWithAi(env, material);
+    await env.DB.prepare(`
+      UPDATE materials SET summary=?, keywords=?, topic_tags=?, target_users=?, food_ingredients=?,
+        suitable_for_recipe=?, suitable_for_poster=?, suitable_for_xiaohongshu=?, suitable_for_wechat_article=?,
+        risk_level=?, risk_notes=?, official_match_keywords=?, status='parsed', updated_at=CURRENT_TIMESTAMP
+      WHERE id=?
+    `).bind(
+      parsed.summary,
+      JSON.stringify(parsed.keywords),
+      JSON.stringify(parsed.topic_tags),
+      JSON.stringify(parsed.target_users),
+      JSON.stringify(parsed.food_ingredients),
+      parsed.suitable_for_recipe ? 1 : 0,
+      parsed.suitable_for_poster ? 1 : 0,
+      parsed.suitable_for_xiaohongshu ? 1 : 0,
+      parsed.suitable_for_wechat_article ? 1 : 0,
+      parsed.risk_level,
+      JSON.stringify(parsed.risk_notes),
+      JSON.stringify(parsed.official_match_keywords),
+      id,
+    ).run();
+    return json({ item: parsed });
+  } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
+  }
 }
 
 async function generateTopics({ env }: PagesContext, materialId: number) {
-  const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(materialId).first<any>();
-  if (!material) return json({ error: "素材不存在" }, 404);
-  const topics = await topicsWithAi(env, material);
-  for (const topic of topics) {
-    await env.DB.prepare(`
-      INSERT INTO topics (title, core_pain, target_user, topic_tags, related_material_ids, official_source_count, manual_source_count, content_angle, recipe_potential, poster_potential, risk_level)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      topic.title,
-      topic.core_pain,
-      topic.target_user,
-      JSON.stringify(topic.topic_tags || []),
-      JSON.stringify([materialId]),
-      material.source_type === "official_auto" ? 1 : 0,
-      material.source_type === "manual_input" ? 1 : 0,
-      topic.content_angle,
-      1,
-      1,
-      topic.risk_level || "low",
-    ).run();
+  try {
+    const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(materialId).first<any>();
+    if (!material) return json({ error: "素材不存在" }, 404);
+    const topics = await topicsWithAi(env, material);
+    for (const topic of topics) {
+      await env.DB.prepare(`
+        INSERT INTO topics (title, core_pain, target_user, topic_tags, related_material_ids, official_source_count, manual_source_count, content_angle, recipe_potential, poster_potential, risk_level)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        topic.title,
+        topic.core_pain,
+        topic.target_user,
+        JSON.stringify(topic.topic_tags || []),
+        JSON.stringify([materialId]),
+        material.source_type === "official_auto" ? 1 : 0,
+        material.source_type === "manual_input" ? 1 : 0,
+        topic.content_angle,
+        1,
+        1,
+        topic.risk_level || "low",
+      ).run();
+    }
+    await env.DB.prepare("UPDATE materials SET status='topic_generated', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(materialId).run();
+    return json({ items: topics });
+  } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
   }
-  await env.DB.prepare("UPDATE materials SET status='topic_generated', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(materialId).run();
-  return json({ items: topics });
 }
 
 async function listTopics(env: Env) {
@@ -272,26 +280,30 @@ async function updateTopic({ request, env }: PagesContext, id: number) {
 }
 
 async function generateContent({ env }: PagesContext, topicId: number) {
-  const topic = await env.DB.prepare("SELECT * FROM topics WHERE id = ?").bind(topicId).first<any>();
-  if (!topic) return json({ error: "选题不存在" }, 404);
-  const ids = safeJsonParse<number[]>(topic.related_material_ids, []);
-  const materials = ids.length ? (await env.DB.prepare(`SELECT * FROM materials WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all()).results : [];
-  const content = await contentWithAi(env, topic, materials || []);
-  const result = await env.DB.prepare(`
-    INSERT INTO contents (topic_id, platform, content_type, title, body, poster_text, card_text, recipe_json, image_prompt, risk_warnings)
-    VALUES (?, 'multi', 'content_pack', ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    topicId,
-    content.wechat_titles?.[0] || topic.title,
-    content.wechat_article,
-    asText(content.poster_text),
-    JSON.stringify(content.xiaohongshu_cards),
-    JSON.stringify(content.recipe),
-    content.image_prompt,
-    JSON.stringify([...(content.risk_warnings || []), content.medical_disclaimer].filter(Boolean)),
-  ).run();
-  await env.DB.prepare("UPDATE topics SET status='generated', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(topicId).run();
-  return json({ id: result.meta.last_row_id, item: content });
+  try {
+    const topic = await env.DB.prepare("SELECT * FROM topics WHERE id = ?").bind(topicId).first<any>();
+    if (!topic) return json({ error: "选题不存在" }, 404);
+    const ids = safeJsonParse<number[]>(topic.related_material_ids, []);
+    const materials = ids.length ? (await env.DB.prepare(`SELECT * FROM materials WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all()).results : [];
+    const content = await contentWithAi(env, topic, materials || []);
+    const result = await env.DB.prepare(`
+      INSERT INTO contents (topic_id, platform, content_type, title, body, poster_text, card_text, recipe_json, image_prompt, risk_warnings)
+      VALUES (?, 'multi', 'content_pack', ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      topicId,
+      content.wechat_titles?.[0] || topic.title,
+      content.wechat_article,
+      asText(content.poster_text),
+      JSON.stringify(content.xiaohongshu_cards),
+      JSON.stringify(content.recipe),
+      content.image_prompt,
+      JSON.stringify([...(content.risk_warnings || []), content.medical_disclaimer].filter(Boolean)),
+    ).run();
+    await env.DB.prepare("UPDATE topics SET status='generated', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(topicId).run();
+    return json({ id: result.meta.last_row_id, item: content });
+  } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
+  }
 }
 
 async function listContents(env: Env) {
@@ -326,16 +338,20 @@ async function updateContent({ request, env }: PagesContext, id: number) {
 }
 
 async function reviewContent({ env }: PagesContext, contentId: number) {
-  const content = await env.DB.prepare("SELECT * FROM contents WHERE id = ?").bind(contentId).first<any>();
-  if (!content) return json({ error: "内容不存在" }, 404);
-  const text = [content.title, content.body, content.poster_text, content.card_text, content.risk_warnings].join("\n");
-  const review = await reviewWithAi(env, text);
-  await env.DB.prepare(`
-    INSERT INTO content_reviews (content_id, risk_level, problem_sentences, suggested_rewrites, missing_disclaimer)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(contentId, review.risk_level, JSON.stringify(review.problem_sentences), JSON.stringify(review.suggested_rewrites), review.missing_disclaimer ? 1 : 0).run();
-  await env.DB.prepare("UPDATE contents SET review_status=? WHERE id=?").bind(review.risk_level === "high" ? "needs_edit" : "passed", contentId).run();
-  return json({ item: review });
+  try {
+    const content = await env.DB.prepare("SELECT * FROM contents WHERE id = ?").bind(contentId).first<any>();
+    if (!content) return json({ error: "内容不存在" }, 404);
+    const text = [content.title, content.body, content.poster_text, content.card_text, content.risk_warnings].join("\n");
+    const review = await reviewWithAi(env, text);
+    await env.DB.prepare(`
+      INSERT INTO content_reviews (content_id, risk_level, problem_sentences, suggested_rewrites, missing_disclaimer)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(contentId, review.risk_level, JSON.stringify(review.problem_sentences), JSON.stringify(review.suggested_rewrites), review.missing_disclaimer ? 1 : 0).run();
+    await env.DB.prepare("UPDATE contents SET review_status=? WHERE id=?").bind(review.risk_level === "high" ? "needs_edit" : "passed", contentId).run();
+    return json({ item: review });
+  } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
+  }
 }
 
 async function createMetrics({ request, env }: PagesContext) {
@@ -773,4 +789,8 @@ function normalizeTitle(title: string) {
 
 function asText(value: any) {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
