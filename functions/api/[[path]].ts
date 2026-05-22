@@ -76,6 +76,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     if (match(path, /^\/contents\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "contents", num(path));
     if (match(path, /^\/contents\/(\d+)\/review$/) && method === "POST") return reviewContent(context, num(path));
     if (match(path, /^\/contents\/(\d+)\/generate-images$/) && method === "POST") return generateContentImages(context, num(path));
+    if (match(path, /^\/content-images\/(\d+)\/run$/) && method === "POST") return runContentImage(context, num(path));
     if (path === "/publish-metrics" && method === "POST") return createMetrics(context);
     if (path === "/publish-metrics" && method === "GET") return listMetrics(context);
     if (match(path, /^\/publish-metrics\/(\d+)$/) && method === "PATCH") return updateMetrics(context, num(path));
@@ -386,15 +387,38 @@ async function generateContentImages({ request, env }: PagesContext, contentId: 
 
     const results = [];
     for (const task of tasks) {
-      const url = await callArkImage(env, task.prompt);
-      await env.DB.prepare(`
-        INSERT INTO content_images (content_id, image_type, card_index, prompt, image_url, status)
-        VALUES (?, ?, ?, ?, ?, 'generated')
-      `).bind(contentId, task.image_type, task.card_index, task.prompt, url).run();
-      results.push({ ...task, image_url: url });
+      const existing = await env.DB.prepare(`
+        SELECT * FROM content_images WHERE content_id=? AND image_type=? AND COALESCE(card_index, 0)=COALESCE(?, 0) AND status IN ('queued','running','generated')
+        ORDER BY id DESC LIMIT 1
+      `).bind(contentId, task.image_type, task.card_index).first<any>();
+      if (existing) {
+        results.push(existing);
+        continue;
+      }
+      const inserted = await env.DB.prepare(`
+        INSERT INTO content_images (content_id, image_type, card_index, prompt, status)
+        VALUES (?, ?, ?, ?, 'queued')
+      `).bind(contentId, task.image_type, task.card_index, task.prompt).run();
+      results.push({ id: inserted.meta.last_row_id, ...task, status: "queued" });
     }
     return json({ items: results });
   } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
+  }
+}
+
+async function runContentImage({ env }: PagesContext, id: number) {
+  const image = await env.DB.prepare("SELECT * FROM content_images WHERE id=?").bind(id).first<any>();
+  if (!image) return json({ error: "图片任务不存在" }, 404);
+  if (image.status === "generated" && image.image_url) return json({ item: image });
+  try {
+    await env.DB.prepare("UPDATE content_images SET status='running', error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+    const url = await callArkImage(env, image.prompt);
+    await env.DB.prepare("UPDATE content_images SET status='generated', image_url=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(url, id).run();
+    const updated = await env.DB.prepare("SELECT * FROM content_images WHERE id=?").bind(id).first();
+    return json({ item: updated });
+  } catch (error) {
+    await env.DB.prepare("UPDATE content_images SET status='failed', error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(errorMessage(error), id).run();
     return json({ error: errorMessage(error) }, 500);
   }
 }

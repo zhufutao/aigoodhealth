@@ -50,7 +50,7 @@ type Material = {
 type Source = { id: number; name: string; type: string; level: string; url: string; crawl_enabled: number; remark?: string; created_at?: string; updated_at?: string };
 type Topic = { id: number; title: string; core_pain: string; target_user: string; content_angle?: string; risk_level: string; status: string; created_at?: string; updated_at?: string };
 type Content = { id: number; title: string; review_status: string; publish_status: string; body: string; poster_text: string; card_text?: string; recipe_json?: string; image_prompt?: string; risk_warnings?: string; created_at?: string; updated_at?: string };
-type ContentImage = { id: number; content_id: number; image_type: string; card_index?: number; prompt?: string; image_url?: string; created_at?: string };
+type ContentImage = { id: number; content_id: number; image_type: string; card_index?: number; prompt?: string; image_url?: string; status?: string; error?: string; created_at?: string };
 type Metric = { id: number; content_id: number; platform: string; publish_url?: string; published_at?: string; views: number; likes: number; favorites: number; comments: number; shares: number; followers_gain: number; private_messages: number; orders: number; note?: string; created_at?: string };
 type TaskState = { open: boolean; title: string; status: "running" | "success" | "error"; message?: string };
 type TabKey = "dashboard" | "materials" | "crawl" | "topics" | "contents" | "metrics";
@@ -510,10 +510,21 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
   const posterImage = images.find((image) => image.image_type === "poster");
   const cardImage = (index: number) => images.find((image) => image.image_type === "xiaohongshu_card" && image.card_index === index);
   async function generateImages(mode: "poster" | "xiaohongshu" | "all") {
-    await runTask("正在生成 AI 图片", async () => {
-      await api(`/contents/${item.id}/generate-images`, { method: "POST", body: { mode } });
+    await runTask("已创建图片生成任务", async () => {
+      const data = await api(`/contents/${item.id}/generate-images`, { method: "POST", body: { mode } });
       await onReload();
+      void runImageJobs(data.items || []);
     });
+  }
+  async function runImageJobs(jobs: ContentImage[]) {
+    for (const job of jobs.filter((item) => item.status !== "generated")) {
+      try {
+        await api(`/content-images/${job.id}/run`, { method: "POST" });
+      } catch {
+        // Individual failures are shown by reloading persisted job status.
+      }
+      await onReload();
+    }
   }
   return (
     <Drawer title="内容包详情" onClose={onClose} wide>
@@ -531,7 +542,7 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
           <h3>小红书 6 图卡</h3>
           <div className="cards-preview">{cards.map((card, index) => {
             const image = cardImage(index + 1);
-            return <div className={`mini-card ${image ? "with-image" : ""}`} key={index} style={image?.image_url ? { backgroundImage: `linear-gradient(rgba(255,255,255,.72), rgba(255,255,255,.86)), url(${image.image_url})` } : undefined}><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p>{!image && <small>尚未生成图片</small>}</div>;
+            return <div className={`mini-card ${image?.image_url ? "with-image" : ""}`} key={index} style={image?.image_url ? { backgroundImage: `linear-gradient(rgba(255,255,255,.72), rgba(255,255,255,.86)), url(${image.image_url})` } : undefined}><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p><small>{imageStatusText(image)}</small></div>;
           })}</div>
         </section>
         <section className="detail-block">
@@ -543,7 +554,7 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
             <ul>{poster.points.map((point: string, index: number) => <li key={index}>{point}</li>)}</ul>
             <small>{poster.disclaimer || "仅作日常饮食参考，不替代医疗建议。"}</small>
           </div>
-          {!posterImage && <p className="meta">尚未生成海报图片，当前为文案预览。</p>}
+          <p className="meta">{imageStatusText(posterImage) || "当前为文案预览。"}</p>
         </section>
         <DetailBlock title="单张海报文案" content={item.poster_text} markdown />
         <section className="detail-block">
@@ -553,7 +564,7 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
         <section className="detail-block">
           <h3>图片区域</h3>
           <div className="image-placeholder">
-            <p>{images.length ? `已生成 ${images.length} 张图片。` : "尚未生成图片。点击上方按钮后，会调用火山方舟图片模型生成海报和图卡背景。"}</p>
+            <p>{imageSummary(images)}</p>
           </div>
           <pre>{item.image_prompt || "暂无图片 Prompt"}</pre>
         </section>
@@ -795,6 +806,23 @@ function parsePoster(text?: string) {
       disclaimer: lines.find((line) => /不替代|就医|参考/.test(line)) || fallback.disclaimer,
     };
   }
+}
+
+function imageStatusText(image?: ContentImage) {
+  if (!image) return "尚未创建图片任务";
+  if (image.status === "generated") return "图片已生成";
+  if (image.status === "running") return "图片生成中...";
+  if (image.status === "queued") return "图片排队中...";
+  if (image.status === "failed") return `生成失败：${image.error || "请重试"}`;
+  return statusText(image.status);
+}
+
+function imageSummary(images: ContentImage[]) {
+  if (!images.length) return "尚未生成图片。点击上方按钮会先创建任务，生成完成后自动刷新显示。";
+  const generated = images.filter((image) => image.status === "generated").length;
+  const running = images.filter((image) => image.status === "running" || image.status === "queued").length;
+  const failed = images.filter((image) => image.status === "failed").length;
+  return `图片任务 ${images.length} 个：已生成 ${generated}，进行中 ${running}，失败 ${failed}。`;
 }
 
 export default App;
