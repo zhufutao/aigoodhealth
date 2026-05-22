@@ -303,6 +303,21 @@ pre {
 .task-modal.success .progress span { width: 100%; animation: none; background: var(--leaf); }
 .task-modal.error .progress span { width: 100%; animation: none; background: var(--danger); }
 .task-modal.error p { color: var(--danger); }
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.danger-primary {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.danger-primary:hover {
+  background: #8e372e;
+  border-color: #8e372e;
+  color: #fff;
+}
 @keyframes slide-progress {
   0% { transform: translateX(-110%); }
   100% { transform: translateX(260%); }
@@ -389,6 +404,61 @@ pre {
 .mini-card p {
   white-space: pre-wrap;
   line-height: 1.55;
+}
+.poster-preview {
+  aspect-ratio: 4 / 5;
+  max-width: 420px;
+  border: 1px solid #d7caa9;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.92), rgba(246,242,227,.96)),
+    radial-gradient(circle at top left, rgba(185,133,47,.22), transparent 32%),
+    #f7f5ed;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+}
+.poster-preview .poster-kicker {
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 900;
+  margin: 0;
+}
+.poster-preview h2 {
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 0;
+}
+.poster-preview p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.poster-preview ul {
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+.poster-preview small {
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  line-height: 1.5;
+}
+.image-placeholder {
+  min-height: 220px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(47,107,79,.08), rgba(185,133,47,.12)),
+    #f7f5ed;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+  margin-bottom: 12px;
 }
 .editor-form {
   display: grid;

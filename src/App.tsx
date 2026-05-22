@@ -141,6 +141,7 @@ function Workspace({ user, onLogout }: { user: any; onLogout: () => void }) {
   const [tab, setTab] = useState<TabKey>("dashboard");
   const [refresh, setRefresh] = useState(0);
   const [task, setTask] = useState<TaskState>({ open: false, title: "", status: "running" });
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const tabs = [
     ["dashboard", "总览", Gauge],
     ["materials", "素材", Database],
@@ -183,13 +184,14 @@ function Workspace({ user, onLogout }: { user: any; onLogout: () => void }) {
       </aside>
       <section className="stage">
         {tab === "dashboard" && <Dashboard refresh={refresh} />}
-        {tab === "materials" && <Materials refresh={refresh} runTask={runTask} goTab={setTab} />}
+        {tab === "materials" && <Materials refresh={refresh} runTask={runTask} goTab={setTab} confirm={setConfirm} />}
         {tab === "crawl" && <Crawler refresh={refresh} runTask={runTask} goTab={setTab} />}
-        {tab === "topics" && <Topics refresh={refresh} runTask={runTask} goTab={setTab} />}
-        {tab === "contents" && <Contents refresh={refresh} runTask={runTask} />}
-        {tab === "metrics" && <Metrics refresh={refresh} runTask={runTask} />}
+        {tab === "topics" && <Topics refresh={refresh} runTask={runTask} goTab={setTab} confirm={setConfirm} />}
+        {tab === "contents" && <Contents refresh={refresh} runTask={runTask} confirm={setConfirm} />}
+        {tab === "metrics" && <Metrics refresh={refresh} runTask={runTask} confirm={setConfirm} />}
       </section>
       {task.open && <TaskModal task={task} onClose={() => setTask({ ...task, open: false })} />}
+      {confirm && <ConfirmModal title={confirm.title} message={confirm.message} onCancel={() => setConfirm(null)} onConfirm={() => { const action = confirm.onConfirm; setConfirm(null); action(); }} />}
     </main>
   );
 }
@@ -217,7 +219,7 @@ function Dashboard({ refresh }: { refresh: number }) {
   );
 }
 
-function Materials({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
+function Materials({ refresh, runTask, goTab, confirm }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void; confirm: any }) {
   const [items, setItems] = useState<Material[]>([]);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState<PageMeta | null>(null);
@@ -285,7 +287,7 @@ function Materials({ refresh, runTask, goTab }: { refresh: number; runTask: any;
                 <button onClick={() => setEditing(item)}><Edit3 size={15} /> 编辑</button>
                 <button onClick={() => parse(item)}><Bot size={15} /> AI解析</button>
                 <button onClick={() => topics(item)}><Sparkles size={15} /> 生成选题</button>
-                <button className="danger" onClick={() => runTask("删除素材", async () => { await api(`/materials/${item.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={15} /> 删除</button>
+                <button className="danger" onClick={() => confirm({ title: "确认删除素材", message: `确定删除「${item.title}」吗？删除后不可恢复。`, onConfirm: () => runTask("删除素材", async () => { await api(`/materials/${item.id}`, { method: "DELETE" }); await load(); }) })}><Trash2 size={15} /> 删除</button>
               </div>
             </article>
           ))}
@@ -353,7 +355,7 @@ function Crawler({ refresh, runTask, goTab }: { refresh: number; runTask: any; g
   );
 }
 
-function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
+function Topics({ refresh, runTask, goTab, confirm }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void; confirm: any }) {
   const [items, setItems] = useState<Topic[]>([]);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState<PageMeta | null>(null);
@@ -380,7 +382,7 @@ function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; go
             <div className="actions">
               <button onClick={() => setEditing(topic)}><Edit3 size={15} /> 编辑</button>
               <button onClick={() => generate(topic)}><FileText size={15} /> 生成内容包</button>
-              <button className="danger" onClick={() => runTask("删除选题", async () => { await api(`/topics/${topic.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={15} /> 删除</button>
+              <button className="danger" onClick={() => confirm({ title: "确认删除选题", message: `确定删除「${topic.title}」吗？删除后不可恢复。`, onConfirm: () => runTask("删除选题", async () => { await api(`/topics/${topic.id}`, { method: "DELETE" }); await load(); }) })}><Trash2 size={15} /> 删除</button>
             </div>
           </article>
         ))}
@@ -391,7 +393,7 @@ function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; go
   );
 }
 
-function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
+function Contents({ refresh, runTask, confirm }: { refresh: number; runTask: any; confirm: any }) {
   const [items, setItems] = useState<Content[]>([]);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState<PageMeta | null>(null);
@@ -426,7 +428,7 @@ function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
               <button onClick={() => openDetail(item.id)}><Eye size={15} /> 查看</button>
               <button onClick={() => setEditing(item)}><Edit3 size={15} /> 编辑</button>
               <button onClick={() => review(item)}><ShieldCheck size={15} /> 风险审核</button>
-              <button className="danger" onClick={() => runTask("删除内容包", async () => { await api(`/contents/${item.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={15} /> 删除</button>
+              <button className="danger" onClick={() => confirm({ title: "确认删除内容包", message: `确定删除「${item.title}」吗？删除后不可恢复。`, onConfirm: () => runTask("删除内容包", async () => { await api(`/contents/${item.id}`, { method: "DELETE" }); await load(); }) })}><Trash2 size={15} /> 删除</button>
             </div>
           </article>
         ))}
@@ -438,7 +440,7 @@ function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
   );
 }
 
-function Metrics({ refresh, runTask }: { refresh: number; runTask: any }) {
+function Metrics({ refresh, runTask, confirm }: { refresh: number; runTask: any; confirm: any }) {
   const [contents, setContents] = useState<Content[]>([]);
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [page, setPage] = useState(1);
@@ -471,7 +473,7 @@ function Metrics({ refresh, runTask }: { refresh: number; runTask: any }) {
         </form>
       </Panel>
       <Panel title="最近数据">
-        <Rows items={metrics} render={(m) => (<><strong>{platformText(m.platform)} · 阅读 {m.views}</strong><span>赞 {m.likes} / 藏 {m.favorites} / 转发 {m.shares} / 订单 {m.orders} · 创建 {dateText(m.created_at)}</span><span className="row-actions"><button onClick={() => setEditing(m)}><Edit3 size={14} /> 编辑</button><button className="danger" onClick={() => runTask("删除复盘", async () => { await api(`/publish-metrics/${m.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={14} /> 删除</button></span></>)} />
+        <Rows items={metrics} render={(m) => (<><strong>{platformText(m.platform)} · 阅读 {m.views}</strong><span>赞 {m.likes} / 藏 {m.favorites} / 转发 {m.shares} / 订单 {m.orders} · 创建 {dateText(m.created_at)}</span><span className="row-actions"><button onClick={() => setEditing(m)}><Edit3 size={14} /> 编辑</button><button className="danger" onClick={() => confirm({ title: "确认删除复盘记录", message: `确定删除这条 ${platformText(m.platform)} 复盘数据吗？删除后不可恢复。`, onConfirm: () => runTask("删除复盘", async () => { await api(`/publish-metrics/${m.id}`, { method: "DELETE" }); await load(); }) })}><Trash2 size={14} /> 删除</button></span></>)} />
         <Pagination meta={meta} onPage={setPage} />
       </Panel>
       {editing && <MetricEditor item={editing} contents={contents} onClose={() => setEditing(null)} onSave={(body) => runTask("保存复盘修改", async () => { await api(`/publish-metrics/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
@@ -502,6 +504,7 @@ function ContentDetail({ detail, onClose }: { detail: any; onClose: () => void }
   const cards = safeArray(item.card_text);
   const recipe = safeArray(item.recipe_json);
   const warnings = safeArray(item.risk_warnings);
+  const poster = parsePoster(item.poster_text);
   return (
     <Drawer title="内容包详情" onClose={onClose} wide>
       <h2>{item.title}</h2>
@@ -513,12 +516,28 @@ function ContentDetail({ detail, onClose }: { detail: any; onClose: () => void }
           <h3>小红书 6 图卡</h3>
           <div className="cards-preview">{cards.map((card, index) => <div className="mini-card" key={index}><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p></div>)}</div>
         </section>
+        <section className="detail-block">
+          <h3>单张海报预览</h3>
+          <div className="poster-preview">
+            <p className="poster-kicker">日常饮食参考</p>
+            <h2>{poster.title}</h2>
+            <p>{poster.subtitle}</p>
+            <ul>{poster.points.map((point: string, index: number) => <li key={index}>{point}</li>)}</ul>
+            <small>{poster.disclaimer || "仅作日常饮食参考，不替代医疗建议。"}</small>
+          </div>
+        </section>
         <DetailBlock title="单张海报文案" content={item.poster_text} markdown />
         <section className="detail-block">
           <h3>一周食谱/食谱表</h3>
           <pre>{JSON.stringify(recipe, null, 2)}</pre>
         </section>
-        <DetailBlock title="图片 Prompt" content={item.image_prompt || ""} />
+        <section className="detail-block">
+          <h3>图片区域</h3>
+          <div className="image-placeholder">
+            <p>当前版本尚未接入图片生成接口，这里展示可用于生成图片的 Prompt。</p>
+          </div>
+          <pre>{item.image_prompt || "暂无图片 Prompt"}</pre>
+        </section>
         <section className="detail-block">
           <h3>风险提醒</h3>
           <pre>{JSON.stringify(warnings, null, 2)}</pre>
@@ -596,6 +615,21 @@ function TaskModal({ task, onClose }: { task: TaskState; onClose: () => void }) 
         <div className="task-head"><strong>{task.title}</strong>{task.status !== "running" && <button onClick={onClose}><X size={16} /></button>}</div>
         <div className="progress"><span /></div>
         <p>{task.status === "running" ? "处理中，请稍候..." : task.message}</p>
+      </section>
+    </div>
+  );
+}
+
+function ConfirmModal({ title, message, onCancel, onConfirm }: { title: string; message: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="modal-mask">
+      <section className="task-modal confirm">
+        <div className="task-head"><strong>{title}</strong><button onClick={onCancel}><X size={16} /></button></div>
+        <p>{message}</p>
+        <div className="confirm-actions">
+          <button onClick={onCancel}>取消</button>
+          <button className="primary danger-primary" onClick={onConfirm}><Trash2 size={16} /> 确认删除</button>
+        </div>
       </section>
     </div>
   );
@@ -720,6 +754,28 @@ function cardBody(card: unknown) {
     return String(value.body || value.text || JSON.stringify(value, null, 2));
   }
   return String(card || "");
+}
+
+function parsePoster(text?: string) {
+  const fallback = { title: "海报标题", subtitle: "", points: [] as string[], disclaimer: "仅作日常饮食参考，不替代医疗建议。" };
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      title: parsed.title || fallback.title,
+      subtitle: parsed.subtitle || "",
+      points: Array.isArray(parsed.points) ? parsed.points : [],
+      disclaimer: parsed.disclaimer || fallback.disclaimer,
+    };
+  } catch {
+    const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    return {
+      title: lines[0] || fallback.title,
+      subtitle: lines[1] || "",
+      points: lines.slice(2, 7),
+      disclaimer: lines.find((line) => /不替代|就医|参考/.test(line)) || fallback.disclaimer,
+    };
+  }
 }
 
 export default App;
