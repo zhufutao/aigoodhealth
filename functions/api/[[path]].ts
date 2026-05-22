@@ -47,19 +47,32 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     if (path === "/auth/me" && method === "GET") return json({ user });
     if (path === "/dashboard/summary" && method === "GET") return dashboard(context.env);
     if (path === "/sources" && method === "GET") return listSources(context.env);
+    if (path === "/sources" && method === "POST") return createSource(context);
+    if (match(path, /^\/sources\/(\d+)$/) && method === "PATCH") return updateSource(context, num(path));
+    if (match(path, /^\/sources\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "sources", num(path));
     if (path === "/materials" && method === "GET") return listMaterials(context.env);
     if (path === "/materials" && method === "POST") return createMaterial(context);
     if (match(path, /^\/materials\/(\d+)$/) && method === "GET") return getMaterial(context, num(path));
+    if (match(path, /^\/materials\/(\d+)$/) && method === "PATCH") return updateMaterial(context, num(path));
+    if (match(path, /^\/materials\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "materials", num(path));
     if (match(path, /^\/materials\/(\d+)\/parse$/) && method === "POST") return parseMaterial(context, num(path));
     if (match(path, /^\/materials\/(\d+)\/generate-topics$/) && method === "POST") return generateTopics(context, num(path));
     if (path === "/crawl/run" && method === "POST") return runCrawl(context);
     if (path === "/crawl/runs" && method === "GET") return listCrawlRuns(context.env);
     if (path === "/topics" && method === "GET") return listTopics(context.env);
+    if (match(path, /^\/topics\/(\d+)$/) && method === "GET") return getTopic(context, num(path));
+    if (match(path, /^\/topics\/(\d+)$/) && method === "PATCH") return updateTopic(context, num(path));
+    if (match(path, /^\/topics\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "topics", num(path));
     if (match(path, /^\/topics\/(\d+)\/generate-content$/) && method === "POST") return generateContent(context, num(path));
     if (path === "/contents" && method === "GET") return listContents(context.env);
+    if (match(path, /^\/contents\/(\d+)$/) && method === "GET") return getContent(context, num(path));
+    if (match(path, /^\/contents\/(\d+)$/) && method === "PATCH") return updateContent(context, num(path));
+    if (match(path, /^\/contents\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "contents", num(path));
     if (match(path, /^\/contents\/(\d+)\/review$/) && method === "POST") return reviewContent(context, num(path));
     if (path === "/publish-metrics" && method === "POST") return createMetrics(context);
     if (path === "/publish-metrics" && method === "GET") return listMetrics(context.env);
+    if (match(path, /^\/publish-metrics\/(\d+)$/) && method === "PATCH") return updateMetrics(context, num(path));
+    if (match(path, /^\/publish-metrics\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "publish_metrics", num(path));
 
     return json({ error: "NOT_FOUND", path }, 404);
   } catch (error) {
@@ -120,6 +133,24 @@ async function listSources(env: Env) {
   return json({ items: rows.results || [] });
 }
 
+async function createSource({ request, env }: PagesContext) {
+  const body = await request.json<any>();
+  const result = await env.DB.prepare(`
+    INSERT INTO sources (name, type, level, url, crawl_enabled, remark)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(body.name, body.type || "official", body.level || "S", body.url || "", body.crawl_enabled ? 1 : 0, body.remark || "").run();
+  return json({ id: result.meta.last_row_id });
+}
+
+async function updateSource({ request, env }: PagesContext, id: number) {
+  const body = await request.json<any>();
+  await env.DB.prepare(`
+    UPDATE sources SET name=?, type=?, level=?, url=?, crawl_enabled=?, remark=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(body.name, body.type, body.level, body.url || "", body.crawl_enabled ? 1 : 0, body.remark || "", id).run();
+  return json({ ok: true });
+}
+
 async function listMaterials(env: Env) {
   const rows = await env.DB.prepare("SELECT * FROM materials ORDER BY id DESC LIMIT 100").all();
   return json({ items: rows.results || [] });
@@ -146,6 +177,25 @@ async function createMaterial({ request, env }: PagesContext) {
     body.manual_note || "",
   ).run();
   return json({ id: result.meta.last_row_id });
+}
+
+async function updateMaterial({ request, env }: PagesContext, id: number) {
+  const body = await request.json<any>();
+  await env.DB.prepare(`
+    UPDATE materials SET source_platform=?, source_name=?, source_level=?, title=?, url=?, raw_content=?, manual_note=?, status=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(
+    body.source_platform || "website",
+    body.source_name || "人工素材",
+    body.source_level || "C",
+    body.title || "",
+    body.url || null,
+    body.raw_content || "",
+    body.manual_note || "",
+    body.status || "new",
+    id,
+  ).run();
+  return json({ ok: true });
 }
 
 async function parseMaterial({ env }: PagesContext, id: number) {
@@ -206,6 +256,20 @@ async function listTopics(env: Env) {
   return json({ items: rows.results || [] });
 }
 
+async function getTopic({ env }: PagesContext, id: number) {
+  const item = await env.DB.prepare("SELECT * FROM topics WHERE id = ?").bind(id).first();
+  return item ? json({ item }) : json({ error: "NOT_FOUND" }, 404);
+}
+
+async function updateTopic({ request, env }: PagesContext, id: number) {
+  const body = await request.json<any>();
+  await env.DB.prepare(`
+    UPDATE topics SET title=?, core_pain=?, target_user=?, content_angle=?, risk_level=?, status=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(body.title || "", body.core_pain || "", body.target_user || "", body.content_angle || "", body.risk_level || "low", body.status || "candidate", id).run();
+  return json({ ok: true });
+}
+
 async function generateContent({ env }: PagesContext, topicId: number) {
   const topic = await env.DB.prepare("SELECT * FROM topics WHERE id = ?").bind(topicId).first<any>();
   if (!topic) return json({ error: "选题不存在" }, 404);
@@ -232,6 +296,32 @@ async function generateContent({ env }: PagesContext, topicId: number) {
 async function listContents(env: Env) {
   const rows = await env.DB.prepare("SELECT * FROM contents ORDER BY id DESC LIMIT 100").all();
   return json({ items: rows.results || [] });
+}
+
+async function getContent({ env }: PagesContext, id: number) {
+  const item = await env.DB.prepare("SELECT * FROM contents WHERE id = ?").bind(id).first();
+  const reviews = await env.DB.prepare("SELECT * FROM content_reviews WHERE content_id = ? ORDER BY id DESC").bind(id).all();
+  return item ? json({ item, reviews: reviews.results || [] }) : json({ error: "NOT_FOUND" }, 404);
+}
+
+async function updateContent({ request, env }: PagesContext, id: number) {
+  const body = await request.json<any>();
+  await env.DB.prepare(`
+    UPDATE contents SET title=?, body=?, poster_text=?, card_text=?, recipe_json=?, image_prompt=?, risk_warnings=?, review_status=?, publish_status=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(
+    body.title || "",
+    body.body || "",
+    body.poster_text || "",
+    body.card_text || "[]",
+    body.recipe_json || "[]",
+    body.image_prompt || "",
+    body.risk_warnings || "[]",
+    body.review_status || "pending",
+    body.publish_status || "draft",
+    id,
+  ).run();
+  return json({ ok: true });
 }
 
 async function reviewContent({ env }: PagesContext, contentId: number) {
@@ -273,6 +363,37 @@ async function createMetrics({ request, env }: PagesContext) {
 async function listMetrics(env: Env) {
   const rows = await env.DB.prepare("SELECT * FROM publish_metrics ORDER BY id DESC LIMIT 100").all();
   return json({ items: rows.results || [] });
+}
+
+async function updateMetrics({ request, env }: PagesContext, id: number) {
+  const body = await request.json<any>();
+  await env.DB.prepare(`
+    UPDATE publish_metrics SET content_id=?, platform=?, publish_url=?, published_at=?, views=?, likes=?, favorites=?, comments=?, shares=?, followers_gain=?, private_messages=?, orders=?, note=?
+    WHERE id=?
+  `).bind(
+    body.content_id,
+    body.platform,
+    body.publish_url || "",
+    body.published_at || new Date().toISOString().slice(0, 10),
+    body.views || 0,
+    body.likes || 0,
+    body.favorites || 0,
+    body.comments || 0,
+    body.shares || 0,
+    body.followers_gain || 0,
+    body.private_messages || 0,
+    body.orders || 0,
+    body.note || "",
+    id,
+  ).run();
+  return json({ ok: true });
+}
+
+async function deleteRow(env: Env, table: string, id: number) {
+  const allowed = new Set(["sources", "materials", "topics", "contents", "publish_metrics"]);
+  if (!allowed.has(table)) return json({ error: "不允许删除该表" }, 400);
+  await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id).run();
+  return json({ ok: true });
 }
 
 async function runCrawl({ env }: PagesContext) {

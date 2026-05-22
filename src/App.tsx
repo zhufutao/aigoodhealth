@@ -1,18 +1,23 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import {
   Activity,
   BookOpenText,
   Bot,
   Database,
+  Edit3,
+  Eye,
   FileText,
   Gauge,
   Lock,
   LogOut,
   Newspaper,
   Play,
+  Save,
   ShieldCheck,
   Sparkles,
+  Trash2,
+  X,
 } from "lucide-react";
 import "./App.css";
 
@@ -20,19 +25,66 @@ type Material = {
   id: number;
   title: string;
   source_type: string;
+  source_platform: string;
   source_name: string;
   source_level: string;
   risk_level?: string;
   status: string;
   summary?: string;
   raw_content?: string;
+  manual_note?: string;
   url?: string;
+  keywords?: string;
+  topic_tags?: string;
+  target_users?: string;
+  food_ingredients?: string;
+  risk_notes?: string;
+  official_match_keywords?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
-type Topic = { id: number; title: string; core_pain: string; target_user: string; risk_level: string; status: string };
-type Content = { id: number; title: string; review_status: string; publish_status: string; body: string; poster_text: string };
+type Source = { id: number; name: string; type: string; level: string; url: string; crawl_enabled: number; remark?: string; created_at?: string; updated_at?: string };
+type Topic = { id: number; title: string; core_pain: string; target_user: string; content_angle?: string; risk_level: string; status: string; created_at?: string; updated_at?: string };
+type Content = { id: number; title: string; review_status: string; publish_status: string; body: string; poster_text: string; card_text?: string; recipe_json?: string; image_prompt?: string; risk_warnings?: string; created_at?: string; updated_at?: string };
+type Metric = { id: number; content_id: number; platform: string; publish_url?: string; published_at?: string; views: number; likes: number; favorites: number; comments: number; shares: number; followers_gain: number; private_messages: number; orders: number; note?: string; created_at?: string };
+type TaskState = { open: boolean; title: string; status: "running" | "success" | "error"; message?: string };
+type TabKey = "dashboard" | "materials" | "crawl" | "topics" | "contents" | "metrics";
 
 const API = "/api";
+
+const sourceLevelMap: Record<string, string> = {
+  S: "S级 权威机构",
+  A: "A级 专业机构",
+  B: "B级 主流媒体",
+  C: "C级 人工灵感",
+  D: "D级 高风险参考",
+};
+const sourceTypeMap: Record<string, string> = {
+  manual_input: "人工素材",
+  official_auto: "权威抓取",
+  user_idea: "用户想法",
+};
+const statusMap: Record<string, string> = {
+  new: "待解析",
+  parsed: "已解析",
+  topic_generated: "已生成选题",
+  discarded: "已弃用",
+  candidate: "候选",
+  selected: "已选中",
+  generated: "已生成内容",
+  published: "已发布",
+  draft: "草稿",
+  pending: "待审核",
+  passed: "审核通过",
+  rejected: "审核拒绝",
+  needs_edit: "需修改",
+  archived: "已归档",
+  success: "成功",
+  failed: "失败",
+  running: "运行中",
+};
+const riskMap: Record<string, string> = { low: "低风险", medium: "中风险", high: "高风险" };
 
 function App() {
   const [user, setUser] = useState<any>(null);
@@ -76,15 +128,15 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
           {error && <p className="error">{error}</p>}
           <button className="primary" type="submit"><Lock size={16} /> 登录后台</button>
         </form>
-        <p className="hint">开发默认账号：admin / admin123456。部署后请通过 Cloudflare 环境变量替换。</p>
       </section>
     </main>
   );
 }
 
 function Workspace({ user, onLogout }: { user: any; onLogout: () => void }) {
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState<TabKey>("dashboard");
   const [refresh, setRefresh] = useState(0);
+  const [task, setTask] = useState<TaskState>({ open: false, title: "", status: "running" });
   const tabs = [
     ["dashboard", "总览", Gauge],
     ["materials", "素材", Database],
@@ -93,6 +145,21 @@ function Workspace({ user, onLogout }: { user: any; onLogout: () => void }) {
     ["contents", "内容", FileText],
     ["metrics", "复盘", Activity],
   ] as const;
+
+  async function runTask<T>(title: string, fn: () => Promise<T>, done?: (result: T) => void) {
+    setTask({ open: true, title, status: "running" });
+    try {
+      const result = await fn();
+      setTask({ open: true, title, status: "success", message: "已完成" });
+      setRefresh((x) => x + 1);
+      done?.(result);
+      window.setTimeout(() => setTask((prev) => prev.status === "success" ? { ...prev, open: false } : prev), 850);
+      return result;
+    } catch (err) {
+      setTask({ open: true, title, status: "error", message: err instanceof Error ? err.message : "操作失败" });
+      throw err;
+    }
+  }
 
   async function logout() {
     await api("/auth/logout", { method: "POST" });
@@ -112,12 +179,13 @@ function Workspace({ user, onLogout }: { user: any; onLogout: () => void }) {
       </aside>
       <section className="stage">
         {tab === "dashboard" && <Dashboard refresh={refresh} />}
-        {tab === "materials" && <Materials onChanged={() => setRefresh((x) => x + 1)} />}
-        {tab === "crawl" && <Crawler onChanged={() => setRefresh((x) => x + 1)} />}
-        {tab === "topics" && <Topics onChanged={() => setRefresh((x) => x + 1)} />}
-        {tab === "contents" && <Contents onChanged={() => setRefresh((x) => x + 1)} />}
-        {tab === "metrics" && <Metrics />}
+        {tab === "materials" && <Materials refresh={refresh} runTask={runTask} goTab={setTab} />}
+        {tab === "crawl" && <Crawler refresh={refresh} runTask={runTask} goTab={setTab} />}
+        {tab === "topics" && <Topics refresh={refresh} runTask={runTask} goTab={setTab} />}
+        {tab === "contents" && <Contents refresh={refresh} runTask={runTask} />}
+        {tab === "metrics" && <Metrics refresh={refresh} runTask={runTask} />}
       </section>
+      {task.open && <TaskModal task={task} onClose={() => setTask({ ...task, open: false })} />}
     </main>
   );
 }
@@ -137,7 +205,7 @@ function Dashboard({ refresh }: { refresh: number }) {
         <Rows items={data?.latest || []} render={(item: Material) => (
           <>
             <strong>{item.title || "未命名素材"}</strong>
-            <span>{item.source_name} · {item.source_level} · {item.status}</span>
+            <span>{levelText(item.source_level)} · {statusText(item.status)} · 创建 {dateText(item.created_at)}</span>
           </>
         )} />
       </Panel>
@@ -145,35 +213,38 @@ function Dashboard({ refresh }: { refresh: number }) {
   );
 }
 
-function Materials({ onChanged }: { onChanged: () => void }) {
+function Materials({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
   const [items, setItems] = useState<Material[]>([]);
-  const [form, setForm] = useState({ title: "", url: "", raw_content: "", manual_note: "", source_platform: "wechat" });
-  const [busy, setBusy] = useState("");
+  const [selected, setSelected] = useState<Material | null>(null);
+  const [editing, setEditing] = useState<Material | null>(null);
+  const [form, setForm] = useState({ title: "", url: "", raw_content: "", manual_note: "", source_platform: "wechat", source_level: "C" });
   const load = () => api("/materials").then((data) => setItems(data.items));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [refresh]);
 
   async function create(event: React.FormEvent) {
     event.preventDefault();
-    setBusy("saving");
-    await api("/materials", { method: "POST", body: form });
-    setForm({ title: "", url: "", raw_content: "", manual_note: "", source_platform: "wechat" });
-    await load();
-    onChanged();
-    setBusy("");
+    await runTask("保存人工素材", async () => {
+      await api("/materials", { method: "POST", body: form });
+      setForm({ title: "", url: "", raw_content: "", manual_note: "", source_platform: "wechat", source_level: "C" });
+      await load();
+    });
   }
 
-  async function parse(id: number) {
-    setBusy(`parse-${id}`);
-    await api(`/materials/${id}/parse`, { method: "POST" });
-    await load();
-    setBusy("");
+  async function parse(item: Material) {
+    await runTask("AI 正在解析素材", async () => {
+      await api(`/materials/${item.id}/parse`, { method: "POST" });
+      const detail = await api(`/materials/${item.id}`);
+      await load();
+      setSelected(detail.item);
+      return detail.item;
+    });
   }
 
-  async function topics(id: number) {
-    setBusy(`topics-${id}`);
-    await api(`/materials/${id}/generate-topics`, { method: "POST" });
-    await load();
-    setBusy("");
+  async function topics(item: Material) {
+    await runTask("正在生成候选选题", async () => {
+      await api(`/materials/${item.id}/generate-topics`, { method: "POST" });
+      await load();
+    }, () => goTab("topics"));
   }
 
   return (
@@ -182,120 +253,187 @@ function Materials({ onChanged }: { onChanged: () => void }) {
         <form className="grid-form" onSubmit={create}>
           <input placeholder="标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
           <input placeholder="链接，可为空" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+          <select value={form.source_level} onChange={(e) => setForm({ ...form, source_level: e.target.value })}>
+            <option value="C">C级 人工灵感</option><option value="B">B级 主流媒体</option><option value="A">A级 专业机构</option><option value="S">S级 权威机构</option><option value="D">D级 高风险参考</option>
+          </select>
           <select value={form.source_platform} onChange={(e) => setForm({ ...form, source_platform: e.target.value })}>
             <option value="wechat">公众号</option><option value="xiaohongshu">小红书</option><option value="zhihu">知乎</option><option value="book">书籍</option><option value="comment">评论区</option><option value="website">网页</option>
           </select>
           <textarea placeholder="正文/摘录" value={form.raw_content} onChange={(e) => setForm({ ...form, raw_content: e.target.value })} required />
           <textarea placeholder="备注" value={form.manual_note} onChange={(e) => setForm({ ...form, manual_note: e.target.value })} />
-          <button className="primary" disabled={busy === "saving"}><Database size={16} /> 保存素材</button>
+          <button className="primary"><Database size={16} /> 保存素材</button>
         </form>
       </Panel>
       <Panel title="素材列表">
         <div className="card-list">
           {items.map((item) => (
             <article className="item-card" key={item.id}>
-              <div><p className="badge">{item.source_level || "C"} · {item.source_type}</p><h3>{item.title}</h3><p>{item.summary || item.raw_content?.slice(0, 120)}</p></div>
+              <div>
+                <p className="badge">{levelText(item.source_level)} · {sourceTypeText(item.source_type)} · {statusText(item.status)}</p>
+                <h3>{item.title}</h3>
+                <p>{item.summary || item.raw_content?.slice(0, 120)}</p>
+                <Meta created={item.created_at} updated={item.updated_at} />
+              </div>
               <div className="actions">
-                <button onClick={() => parse(item.id)} disabled={busy === `parse-${item.id}`}><Bot size={15} /> AI 解析</button>
-                <button onClick={() => topics(item.id)} disabled={busy === `topics-${item.id}`}><Sparkles size={15} /> 生成选题</button>
+                <button onClick={() => setSelected(item)}><Eye size={15} /> 查看</button>
+                <button onClick={() => setEditing(item)}><Edit3 size={15} /> 编辑</button>
+                <button onClick={() => parse(item)}><Bot size={15} /> AI解析</button>
+                <button onClick={() => topics(item)}><Sparkles size={15} /> 生成选题</button>
+                <button className="danger" onClick={() => runTask("删除素材", async () => { await api(`/materials/${item.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={15} /> 删除</button>
               </div>
             </article>
           ))}
         </div>
       </Panel>
+      {selected && <MaterialDetail item={selected} onClose={() => setSelected(null)} />}
+      {editing && <MaterialEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存素材修改", async () => { await api(`/materials/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
   );
 }
 
-function Crawler({ onChanged }: { onChanged: () => void }) {
+function Crawler({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
   const [runs, setRuns] = useState<any[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [result, setResult] = useState<any>(null);
-  const [busy, setBusy] = useState(false);
-  const load = () => api("/crawl/runs").then((data) => setRuns(data.items));
-  useEffect(() => { load(); }, []);
+  const [editing, setEditing] = useState<Source | null>(null);
+  const load = async () => {
+    const [runData, sourceData] = await Promise.all([api("/crawl/runs"), api("/sources")]);
+    setRuns(runData.items);
+    setSources(sourceData.items);
+  };
+  useEffect(() => { load(); }, [refresh]);
+
   async function run() {
-    setBusy(true);
-    const data = await api("/crawl/run", { method: "POST" });
-    setResult(data);
-    await load();
-    onChanged();
-    setBusy(false);
+    await runTask("正在抓取国家卫健委权威素材", async () => {
+      const data = await api("/crawl/run", { method: "POST" });
+      setResult(data);
+      await load();
+      return data;
+    }, () => goTab("materials"));
   }
+
   return (
     <Page title="权威抓取" intro="第一版权威来源：国家卫生健康委健康科普辟谣平台，入库为 S 级权威素材。">
       <Panel title="国家卫健委抓取">
         <div className="crawl-box">
-          <div><strong>https://www.nhc.gov.cn/kppypt/index.shtml</strong><p>手动触发抓取，写入 materials，后续可直接 AI 解析和生成选题。</p></div>
-          <button className="primary" onClick={run} disabled={busy}><Play size={16} /> {busy ? "抓取中" : "开始抓取"}</button>
+          <div><strong>https://www.nhc.gov.cn/kppypt/index.shtml</strong><p>手动触发抓取，写入素材库，完成后自动跳到素材界面。</p></div>
+          <button className="primary" onClick={run}><Play size={16} /> 开始抓取</button>
         </div>
         {result && <pre>{JSON.stringify(result, null, 2)}</pre>}
       </Panel>
-      <Panel title="抓取记录">
-        <Rows items={runs} render={(run) => (<><strong>#{run.id} {run.status}</strong><span>抓到 {run.fetched_count} / 入库 {run.inserted_count} · {run.error || run.finished_at}</span></>)} />
+      <Panel title="来源列表">
+        <Rows items={sources} render={(source) => (
+          <>
+            <strong>{source.name}</strong>
+            <span>{levelText(source.level)} · {source.type} · 创建 {dateText(source.created_at)}</span>
+            <span className="row-actions"><button onClick={() => setEditing(source)}><Edit3 size={14} /> 编辑</button></span>
+          </>
+        )} />
       </Panel>
+      <Panel title="抓取记录">
+        <Rows items={runs} render={(run) => (<><strong>#{run.id} {statusText(run.status)}</strong><span>抓到 {run.fetched_count} / 入库 {run.inserted_count} · {dateText(run.started_at)} · {run.error || run.finished_at}</span></>)} />
+      </Panel>
+      {editing && <SourceEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存来源修改", async () => { await api(`/sources/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
   );
 }
 
-function Topics({ onChanged }: { onChanged: () => void }) {
-  const data = useApi<{ items: Topic[] }>("/topics", [onChanged]);
-  const [busy, setBusy] = useState("");
-  async function generate(id: number) {
-    setBusy(String(id));
-    await api(`/topics/${id}/generate-content`, { method: "POST" });
-    onChanged();
-    setBusy("");
+function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
+  const [items, setItems] = useState<Topic[]>([]);
+  const [editing, setEditing] = useState<Topic | null>(null);
+  const load = () => api("/topics").then((data) => setItems(data.items));
+  useEffect(() => { load(); }, [refresh]);
+  async function generate(topic: Topic) {
+    await runTask("正在生成内容包", async () => {
+      await api(`/topics/${topic.id}/generate-content`, { method: "POST" });
+      await load();
+    }, () => goTab("contents"));
   }
   return (
-    <Page title="选题库" intro="优先选择有 S/A 级素材支撑的选题，人工灵感类选题需要补权威依据。">
+    <Page title="选题库" intro="生成选题后会来到这里；优先选择有 S/A 级素材支撑的选题。">
       <div className="card-list">
-        {(data?.items || []).map((topic) => (
+        {items.map((topic) => (
           <article className="item-card" key={topic.id}>
-            <div><p className="badge">{topic.risk_level || "low"} · {topic.status}</p><h3>{topic.title}</h3><p>{topic.core_pain} · {topic.target_user}</p></div>
-            <button onClick={() => generate(topic.id)} disabled={busy === String(topic.id)}><FileText size={15} /> 生成内容包</button>
+            <div>
+              <p className="badge">{riskText(topic.risk_level)} · {statusText(topic.status)}</p>
+              <h3>{topic.title}</h3>
+              <p>{topic.core_pain} · {topic.target_user}</p>
+              <Meta created={topic.created_at} updated={topic.updated_at} />
+            </div>
+            <div className="actions">
+              <button onClick={() => setEditing(topic)}><Edit3 size={15} /> 编辑</button>
+              <button onClick={() => generate(topic)}><FileText size={15} /> 生成内容包</button>
+              <button className="danger" onClick={() => runTask("删除选题", async () => { await api(`/topics/${topic.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={15} /> 删除</button>
+            </div>
           </article>
         ))}
       </div>
+      {editing && <TopicEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存选题修改", async () => { await api(`/topics/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
   );
 }
 
-function Contents({ onChanged }: { onChanged: () => void }) {
+function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
   const [items, setItems] = useState<Content[]>([]);
-  const [busy, setBusy] = useState("");
+  const [selected, setSelected] = useState<any | null>(null);
+  const [editing, setEditing] = useState<Content | null>(null);
   const load = () => api("/contents").then((data) => setItems(data.items));
-  useEffect(() => { load(); }, []);
-  async function review(id: number) {
-    setBusy(String(id));
-    await api(`/contents/${id}/review`, { method: "POST" });
-    await load();
-    onChanged();
-    setBusy("");
+  useEffect(() => { load(); }, [refresh]);
+  async function openDetail(id: number) {
+    const detail = await api(`/contents/${id}`);
+    setSelected(detail);
+  }
+  async function review(item: Content) {
+    await runTask("正在进行风险审核", async () => {
+      const reviewResult = await api(`/contents/${item.id}/review`, { method: "POST" });
+      await load();
+      const detail = await api(`/contents/${item.id}`);
+      setSelected({ ...detail, latestReview: reviewResult.item });
+    });
   }
   return (
-    <Page title="内容包" intro="内容生成后必须先审核风险表达，再人工发布到公众号或小红书。">
+    <Page title="内容包" intro="点击查看可以分别看到公众号正文、小红书图卡、海报文案、一周食谱、图片 prompt 和审核结果。">
       <div className="card-list">
         {items.map((item) => (
           <article className="item-card wide" key={item.id}>
-            <div><p className="badge">{item.review_status} · {item.publish_status}</p><h3>{item.title}</h3><p>{item.body?.slice(0, 180)}</p><pre>{item.poster_text}</pre></div>
-            <button onClick={() => review(item.id)} disabled={busy === String(item.id)}><ShieldCheck size={15} /> 风险审核</button>
+            <div>
+              <p className="badge">{statusText(item.review_status)} · {statusText(item.publish_status)}</p>
+              <h3>{item.title}</h3>
+              <p>{item.body?.slice(0, 140)}</p>
+              <Meta created={item.created_at} updated={item.updated_at} />
+            </div>
+            <div className="actions">
+              <button onClick={() => openDetail(item.id)}><Eye size={15} /> 查看</button>
+              <button onClick={() => setEditing(item)}><Edit3 size={15} /> 编辑</button>
+              <button onClick={() => review(item)}><ShieldCheck size={15} /> 风险审核</button>
+              <button className="danger" onClick={() => runTask("删除内容包", async () => { await api(`/contents/${item.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={15} /> 删除</button>
+            </div>
           </article>
         ))}
       </div>
+      {selected && <ContentDetail detail={selected} onClose={() => setSelected(null)} />}
+      {editing && <ContentEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存内容修改", async () => { await api(`/contents/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
   );
 }
 
-function Metrics() {
+function Metrics({ refresh, runTask }: { refresh: number; runTask: any }) {
   const [contents, setContents] = useState<Content[]>([]);
-  const [metrics, setMetrics] = useState<any[]>([]);
+  const [metrics, setMetrics] = useState<Metric[]>([]);
+  const [editing, setEditing] = useState<Metric | null>(null);
   const [form, setForm] = useState<any>({ platform: "wechat", views: 0, likes: 0, favorites: 0, comments: 0, shares: 0, followers_gain: 0, private_messages: 0, orders: 0 });
-  useEffect(() => { api("/contents").then((d) => setContents(d.items)); api("/publish-metrics").then((d) => setMetrics(d.items)); }, []);
+  const load = async () => {
+    const [contentData, metricData] = await Promise.all([api("/contents"), api("/publish-metrics")]);
+    setContents(contentData.items);
+    setMetrics(metricData.items);
+  };
+  useEffect(() => { load(); }, [refresh]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    await api("/publish-metrics", { method: "POST", body: form });
-    const data = await api("/publish-metrics");
-    setMetrics(data.items);
+    await runTask("保存发布复盘", async () => {
+      await api("/publish-metrics", { method: "POST", body: form });
+      await load();
+    });
   }
   return (
     <Page title="发布复盘" intro="手动录入发布表现，后续用来判断选题、平台和内容形式的真实反馈。">
@@ -303,16 +441,154 @@ function Metrics() {
         <form className="metric-form" onSubmit={submit}>
           <select onChange={(e) => setForm({ ...form, content_id: Number(e.target.value) })} required><option value="">选择内容</option>{contents.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}</select>
           <select value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}><option value="wechat">公众号</option><option value="xiaohongshu">小红书</option></select>
-          {["views", "likes", "favorites", "comments", "shares", "followers_gain", "private_messages", "orders"].map((key) => <input key={key} type="number" placeholder={key} value={form[key]} onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />)}
+          {["views", "likes", "favorites", "comments", "shares", "followers_gain", "private_messages", "orders"].map((key) => <input key={key} type="number" placeholder={metricLabel(key)} value={form[key]} onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />)}
           <input placeholder="发布链接" onChange={(e) => setForm({ ...form, publish_url: e.target.value })} />
           <button className="primary"><Activity size={16} /> 保存复盘</button>
         </form>
       </Panel>
       <Panel title="最近数据">
-        <Rows items={metrics} render={(m) => (<><strong>{m.platform} · 阅读 {m.views}</strong><span>赞 {m.likes} / 藏 {m.favorites} / 转发 {m.shares} / 订单 {m.orders}</span></>)} />
+        <Rows items={metrics} render={(m) => (<><strong>{platformText(m.platform)} · 阅读 {m.views}</strong><span>赞 {m.likes} / 藏 {m.favorites} / 转发 {m.shares} / 订单 {m.orders} · 创建 {dateText(m.created_at)}</span><span className="row-actions"><button onClick={() => setEditing(m)}><Edit3 size={14} /> 编辑</button><button className="danger" onClick={() => runTask("删除复盘", async () => { await api(`/publish-metrics/${m.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={14} /> 删除</button></span></>)} />
       </Panel>
+      {editing && <MetricEditor item={editing} contents={contents} onClose={() => setEditing(null)} onSave={(body) => runTask("保存复盘修改", async () => { await api(`/publish-metrics/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
   );
+}
+
+function MaterialDetail({ item, onClose }: { item: Material; onClose: () => void }) {
+  return (
+    <Drawer title="素材详情" onClose={onClose}>
+      <h2>{item.title}</h2>
+      <p className="badge">{levelText(item.source_level)} · {sourceTypeText(item.source_type)} · {statusText(item.status)}</p>
+      <Meta created={item.created_at} updated={item.updated_at} />
+      <DetailBlock title="AI 摘要" content={item.summary || "尚未解析"} />
+      <DetailBlock title="关键词" content={jsonText(item.keywords)} />
+      <DetailBlock title="主题标签" content={jsonText(item.topic_tags)} />
+      <DetailBlock title="目标人群" content={jsonText(item.target_users)} />
+      <DetailBlock title="食材" content={jsonText(item.food_ingredients)} />
+      <DetailBlock title="风险说明" content={jsonText(item.risk_notes)} />
+      <DetailBlock title="权威匹配关键词" content={jsonText(item.official_match_keywords)} />
+      <DetailBlock title="原始内容" content={item.raw_content || ""} />
+    </Drawer>
+  );
+}
+
+function ContentDetail({ detail, onClose }: { detail: any; onClose: () => void }) {
+  const item: Content = detail.item;
+  const cards = safeArray(item.card_text);
+  const recipe = safeArray(item.recipe_json);
+  const warnings = safeArray(item.risk_warnings);
+  return (
+    <Drawer title="内容包详情" onClose={onClose} wide>
+      <h2>{item.title}</h2>
+      <p className="badge">{statusText(item.review_status)} · {statusText(item.publish_status)}</p>
+      <Meta created={item.created_at} updated={item.updated_at} />
+      <div className="detail-grid">
+        <DetailBlock title="公众号正文" content={item.body} />
+        <section className="detail-block">
+          <h3>小红书 6 图卡</h3>
+          <div className="cards-preview">{cards.map((card, index) => <div className="mini-card" key={index}><span>图 {index + 1}</span><p>{String(card)}</p></div>)}</div>
+        </section>
+        <DetailBlock title="单张海报文案" content={item.poster_text} />
+        <section className="detail-block">
+          <h3>一周食谱/食谱表</h3>
+          <pre>{JSON.stringify(recipe, null, 2)}</pre>
+        </section>
+        <DetailBlock title="图片 Prompt" content={item.image_prompt || ""} />
+        <section className="detail-block">
+          <h3>风险提醒</h3>
+          <pre>{JSON.stringify(warnings, null, 2)}</pre>
+        </section>
+        <section className="detail-block full">
+          <h3>审核记录</h3>
+          <Rows items={detail.reviews || []} render={(r: any) => <><strong>{riskText(r.risk_level)} · {dateText(r.created_at)}</strong><span>{jsonText(r.problem_sentences) || "无问题句"}</span></>} />
+          {detail.latestReview && <pre>{JSON.stringify(detail.latestReview, null, 2)}</pre>}
+        </section>
+      </div>
+    </Drawer>
+  );
+}
+
+function MaterialEditor({ item, onClose, onSave }: { item: Material; onClose: () => void; onSave: (body: any) => void }) {
+  const [form, setForm] = useState<any>({ ...item });
+  return <EditorShell title="编辑素材" onClose={onClose} onSave={() => onSave(form)}>
+    <input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+    <input value={form.url || ""} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+    <select value={form.source_level || "C"} onChange={(e) => setForm({ ...form, source_level: e.target.value })}><option value="S">S级 权威机构</option><option value="A">A级 专业机构</option><option value="B">B级 主流媒体</option><option value="C">C级 人工灵感</option><option value="D">D级 高风险参考</option></select>
+    <textarea value={form.raw_content || ""} onChange={(e) => setForm({ ...form, raw_content: e.target.value })} />
+    <textarea value={form.manual_note || ""} onChange={(e) => setForm({ ...form, manual_note: e.target.value })} />
+  </EditorShell>;
+}
+
+function SourceEditor({ item, onClose, onSave }: { item: Source; onClose: () => void; onSave: (body: any) => void }) {
+  const [form, setForm] = useState<any>({ ...item, crawl_enabled: Boolean(item.crawl_enabled) });
+  return <EditorShell title="编辑来源" onClose={onClose} onSave={() => onSave(form)}>
+    <input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+    <input value={form.url || ""} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+    <select value={form.level || "S"} onChange={(e) => setForm({ ...form, level: e.target.value })}><option value="S">S级 权威机构</option><option value="A">A级 专业机构</option><option value="B">B级 主流媒体</option><option value="C">C级 人工灵感</option><option value="D">D级 高风险参考</option></select>
+    <textarea value={form.remark || ""} onChange={(e) => setForm({ ...form, remark: e.target.value })} />
+  </EditorShell>;
+}
+
+function TopicEditor({ item, onClose, onSave }: { item: Topic; onClose: () => void; onSave: (body: any) => void }) {
+  const [form, setForm] = useState<any>({ ...item });
+  return <EditorShell title="编辑选题" onClose={onClose} onSave={() => onSave(form)}>
+    <input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+    <input value={form.core_pain || ""} onChange={(e) => setForm({ ...form, core_pain: e.target.value })} />
+    <input value={form.target_user || ""} onChange={(e) => setForm({ ...form, target_user: e.target.value })} />
+    <textarea value={form.content_angle || ""} onChange={(e) => setForm({ ...form, content_angle: e.target.value })} />
+  </EditorShell>;
+}
+
+function ContentEditor({ item, onClose, onSave }: { item: Content; onClose: () => void; onSave: (body: any) => void }) {
+  const [form, setForm] = useState<any>({ ...item });
+  return <EditorShell title="编辑内容包" onClose={onClose} onSave={() => onSave(form)}>
+    <input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+    <textarea value={form.body || ""} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+    <textarea value={form.card_text || ""} onChange={(e) => setForm({ ...form, card_text: e.target.value })} />
+    <textarea value={form.poster_text || ""} onChange={(e) => setForm({ ...form, poster_text: e.target.value })} />
+    <textarea value={form.recipe_json || ""} onChange={(e) => setForm({ ...form, recipe_json: e.target.value })} />
+    <textarea value={form.image_prompt || ""} onChange={(e) => setForm({ ...form, image_prompt: e.target.value })} />
+  </EditorShell>;
+}
+
+function MetricEditor({ item, contents, onClose, onSave }: { item: Metric; contents: Content[]; onClose: () => void; onSave: (body: any) => void }) {
+  const [form, setForm] = useState<any>({ ...item });
+  return <EditorShell title="编辑复盘数据" onClose={onClose} onSave={() => onSave(form)}>
+    <select value={form.content_id} onChange={(e) => setForm({ ...form, content_id: Number(e.target.value) })}>{contents.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}</select>
+    <select value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}><option value="wechat">公众号</option><option value="xiaohongshu">小红书</option></select>
+    {["views", "likes", "favorites", "comments", "shares", "followers_gain", "private_messages", "orders"].map((key) => <input key={key} type="number" placeholder={metricLabel(key)} value={form[key] || 0} onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />)}
+  </EditorShell>;
+}
+
+function EditorShell({ title, children, onClose, onSave }: { title: string; children: React.ReactNode; onClose: () => void; onSave: () => void }) {
+  return <Drawer title={title} onClose={onClose}><div className="editor-form">{children}<button className="primary" onClick={onSave}><Save size={16} /> 保存</button></div></Drawer>;
+}
+
+function TaskModal({ task, onClose }: { task: TaskState; onClose: () => void }) {
+  return (
+    <div className="modal-mask">
+      <section className={`task-modal ${task.status}`}>
+        <div className="task-head"><strong>{task.title}</strong>{task.status !== "running" && <button onClick={onClose}><X size={16} /></button>}</div>
+        <div className="progress"><span /></div>
+        <p>{task.status === "running" ? "处理中，请稍候..." : task.message}</p>
+      </section>
+    </div>
+  );
+}
+
+function Drawer({ title, children, onClose, wide }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+  return (
+    <div className="drawer-mask">
+      <section className={`drawer ${wide ? "wide-drawer" : ""}`}>
+        <div className="drawer-head"><strong>{title}</strong><button onClick={onClose}><X size={16} /></button></div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function DetailBlock({ title, content }: { title: string; content: string }) {
+  return <section className="detail-block"><h3>{title}</h3><pre>{content || "暂无"}</pre></section>;
 }
 
 function Page({ title, intro, children }: { title: string; intro: string; children: React.ReactNode }) {
@@ -332,6 +608,10 @@ function Rows<T>({ items, render }: { items: T[]; render: (item: T) => React.Rea
   return <div className="rows">{items.map((item, index) => <div className="row" key={index}>{render(item)}</div>)}</div>;
 }
 
+function Meta({ created, updated }: { created?: string; updated?: string }) {
+  return <p className="meta">创建：{dateText(created)} · 更新：{dateText(updated)}</p>;
+}
+
 function useApi<T>(path: string, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const depsKey = JSON.stringify(deps);
@@ -348,6 +628,39 @@ async function api(path: string, options: { method?: string; body?: unknown } = 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "请求失败");
   return data;
+}
+
+function sourceTypeText(value?: string) { return sourceTypeMap[value || ""] || value || "未知来源"; }
+function levelText(value?: string) { return sourceLevelMap[value || ""] || value || "未分级"; }
+function statusText(value?: string) { return statusMap[value || ""] || value || "未知状态"; }
+function riskText(value?: string) { return riskMap[value || ""] || value || "未评估"; }
+function platformText(value?: string) { return value === "wechat" ? "公众号" : value === "xiaohongshu" ? "小红书" : value || "未知平台"; }
+function metricLabel(value: string) {
+  return ({ views: "阅读", likes: "点赞", favorites: "收藏", comments: "评论", shares: "转发", followers_gain: "涨粉", private_messages: "私信", orders: "订单" } as Record<string, string>)[value] || value;
+}
+function dateText(value?: string) {
+  if (!value) return "无";
+  const date = new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z");
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+function safeArray(text?: string) {
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return text.split("\n").filter(Boolean);
+  }
+}
+function jsonText(text?: string) {
+  if (!text) return "";
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed.join("、") : JSON.stringify(parsed, null, 2);
+  } catch {
+    return text;
+  }
 }
 
 export default App;
