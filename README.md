@@ -8,7 +8,7 @@
 - 人工素材录入
 - 国家卫生健康委健康科普辟谣平台抓取入口
 - S 级权威素材入库
-- AI 素材解析接口，必须配置 OpenAI Key 才会执行真实生成
+- AI 素材解析接口，默认接入火山方舟，必须配置 `ARK_API_KEY` 才会执行真实生成
 - 选题生成
 - 公众号/小红书/海报/食谱内容包生成
 - 健康内容风险审核
@@ -20,7 +20,7 @@
 - React + Vite
 - Cloudflare Pages Functions
 - Cloudflare D1
-- OpenAI API
+- 火山方舟 OpenAI 兼容 API
 - @uiw/react-md-editor 开源 Markdown 编辑器
 
 ## 本地开发
@@ -63,10 +63,13 @@ npm run cf:deploy
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
 - `SESSION_SECRET`
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL`，默认项目配置为 `gpt-5.5`，如果你的 API 账号没有该模型权限，请改成账号可用的模型
+- `AI_PROVIDER`，默认 `ark`
+- `ARK_API_KEY`
+- `ARK_BASE_URL`，默认 `https://ark.cn-beijing.volces.com/api/v3`
+- `ARK_MODEL`，默认 `doubao-seed-1-6-250615`，如果你的方舟控制台模型不同，请改成实际可用的模型/接入点 ID
+- 可选：`OPENAI_API_KEY`、`OPENAI_MODEL`，当 `AI_PROVIDER=openai` 时使用
 
-未配置 `OPENAI_API_KEY` 时，AI 解析、选题生成、内容生成、风险审核会明确报错，不会再用截取或模板冒充 AI 结果。
+未配置对应模型服务的 Key 时，AI 解析、选题生成、内容生成、风险审核会明确报错，不会再用截取或模板冒充 AI 结果。
 
 ## 权威抓取说明
 

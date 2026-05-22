@@ -10,4 +10,6 @@ database_id = "7a46f127-5340-4af4-9162-d7482160f963"
 [vars]
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin123456"
-OPENAI_MODEL = "gpt-5.5"
+AI_PROVIDER = "ark"
+ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+ARK_MODEL = "doubao-seed-1-6-250615"

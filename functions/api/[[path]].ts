@@ -1,8 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+﻿/* eslint-disable @typescript-eslint/no-explicit-any */
 type Env = {
   DB: D1Database;
+  AI_PROVIDER?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  ARK_API_KEY?: string;
+  ARK_MODEL?: string;
+  ARK_BASE_URL?: string;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
   SESSION_SECRET?: string;
@@ -550,7 +554,7 @@ JSON 字段：
 
 素材 JSON：
 ${JSON.stringify(material).slice(0, 14000)}`;
-  return requireObject(await callOpenAI(env, prompt), "AI 解析结果不是合法 JSON 对象");
+  return requireObject(await callAI(env, prompt), "AI 解析结果不是合法 JSON 对象");
 }
 
 async function topicsWithAi(env: Env, material: any) {
@@ -582,7 +586,7 @@ async function topicsWithAi(env: Env, material: any) {
 
 素材 JSON：
 ${JSON.stringify(material).slice(0, 14000)}`;
-  const ai = requireObject(await callOpenAI(env, prompt), "AI 选题结果不是合法 JSON 对象");
+  const ai = requireObject(await callAI(env, prompt), "AI 选题结果不是合法 JSON 对象");
   const topics = ai.candidate_topics;
   if (!Array.isArray(topics) || topics.length === 0) throw new Error("AI 没有返回 candidate_topics");
   return topics.slice(0, 5);
@@ -629,7 +633,7 @@ ${JSON.stringify(topic)}
 
 关联素材：
 ${JSON.stringify(materials).slice(0, 18000)}`;
-  const ai = requireObject(await callOpenAI(env, prompt), "AI 内容包结果不是合法 JSON 对象");
+  const ai = requireObject(await callAI(env, prompt), "AI 内容包结果不是合法 JSON 对象");
   if (!ai.wechat_article || !Array.isArray(ai.xiaohongshu_cards)) throw new Error("AI 内容包缺少公众号正文或小红书图卡");
   return ai;
 }
@@ -655,7 +659,40 @@ async function reviewWithAi(env: Env, text: string) {
 
 内容：
 ${text.slice(0, 18000)}`;
-  return requireObject(await callOpenAI(env, prompt), "AI 审核结果不是合法 JSON 对象");
+  return requireObject(await callAI(env, prompt), "AI 审核结果不是合法 JSON 对象");
+}
+
+async function callAI(env: Env, prompt: string) {
+  const provider = (env.AI_PROVIDER || "ark").toLowerCase();
+  if (provider === "openai") return callOpenAI(env, prompt);
+  return callArk(env, prompt);
+}
+
+async function callArk(env: Env, prompt: string) {
+  if (!env.ARK_API_KEY) {
+    throw new Error("未配置 ARK_API_KEY，无法调用火山方舟。请在 Cloudflare Pages 环境变量中添加 ARK_API_KEY。");
+  }
+  const baseUrl = (env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
+  const model = env.ARK_MODEL || "doubao-seed-1-6-250615";
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.ARK_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: "你是健康养生食谱内容系统的 AI 助手。你只输出可解析 JSON，不输出 markdown，不输出解释文字。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.4,
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`火山方舟调用失败：${res.status} ${errorText.slice(0, 500)}`);
+  }
+  const data = await res.json<any>();
+  return safeJsonParse(data.choices?.[0]?.message?.content, null);
 }
 
 async function callOpenAI(env: Env, prompt: string) {
@@ -794,3 +831,4 @@ function asText(value: any) {
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
+
