@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 import { useEffect, useState } from "react";
 import {
   Activity,
@@ -53,6 +53,7 @@ type Content = { id: number; title: string; review_status: string; publish_statu
 type Metric = { id: number; content_id: number; platform: string; publish_url?: string; published_at?: string; views: number; likes: number; favorites: number; comments: number; shares: number; followers_gain: number; private_messages: number; orders: number; note?: string; created_at?: string };
 type TaskState = { open: boolean; title: string; status: "running" | "success" | "error"; message?: string };
 type TabKey = "dashboard" | "materials" | "crawl" | "topics" | "contents" | "metrics";
+type PageMeta = { page: number; pageSize: number; total: number; totalPages: number };
 
 const API = "/api";
 
@@ -218,11 +219,13 @@ function Dashboard({ refresh }: { refresh: number }) {
 
 function Materials({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
   const [items, setItems] = useState<Material[]>([]);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState<PageMeta | null>(null);
   const [selected, setSelected] = useState<Material | null>(null);
   const [editing, setEditing] = useState<Material | null>(null);
   const [form, setForm] = useState({ title: "", url: "", raw_content: "", manual_note: "", source_platform: "wechat", source_level: "C" });
-  const load = () => api("/materials").then((data) => setItems(data.items));
-  useEffect(() => { load(); }, [refresh]);
+  const load = () => api(`/materials?page=${page}`).then((data) => { setItems(data.items); setMeta(data); });
+  useEffect(() => { load(); }, [refresh, page]);
 
   async function create(event: React.FormEvent) {
     event.preventDefault();
@@ -287,6 +290,7 @@ function Materials({ refresh, runTask, goTab }: { refresh: number; runTask: any;
             </article>
           ))}
         </div>
+        <Pagination meta={meta} onPage={setPage} />
       </Panel>
       {selected && <MaterialDetail item={selected} onClose={() => setSelected(null)} />}
       {editing && <MaterialEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存素材修改", async () => { await api(`/materials/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
@@ -297,14 +301,20 @@ function Materials({ refresh, runTask, goTab }: { refresh: number; runTask: any;
 function Crawler({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
   const [runs, setRuns] = useState<any[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [runPage, setRunPage] = useState(1);
+  const [sourcePage, setSourcePage] = useState(1);
+  const [runMeta, setRunMeta] = useState<PageMeta | null>(null);
+  const [sourceMeta, setSourceMeta] = useState<PageMeta | null>(null);
   const [result, setResult] = useState<any>(null);
   const [editing, setEditing] = useState<Source | null>(null);
   const load = async () => {
-    const [runData, sourceData] = await Promise.all([api("/crawl/runs"), api("/sources")]);
+    const [runData, sourceData] = await Promise.all([api(`/crawl/runs?page=${runPage}`), api(`/sources?page=${sourcePage}`)]);
     setRuns(runData.items);
     setSources(sourceData.items);
+    setRunMeta(runData);
+    setSourceMeta(sourceData);
   };
-  useEffect(() => { load(); }, [refresh]);
+  useEffect(() => { load(); }, [refresh, runPage, sourcePage]);
 
   async function run() {
     await runTask("正在抓取国家卫健委权威素材", async () => {
@@ -332,9 +342,11 @@ function Crawler({ refresh, runTask, goTab }: { refresh: number; runTask: any; g
             <span className="row-actions"><button onClick={() => setEditing(source)}><Edit3 size={14} /> 编辑</button></span>
           </>
         )} />
+        <Pagination meta={sourceMeta} onPage={setSourcePage} />
       </Panel>
       <Panel title="抓取记录">
         <Rows items={runs} render={(run) => (<><strong>#{run.id} {statusText(run.status)}</strong><span>抓到 {run.fetched_count} / 入库 {run.inserted_count} · {dateText(run.started_at)} · {run.error || run.finished_at}</span></>)} />
+        <Pagination meta={runMeta} onPage={setRunPage} />
       </Panel>
       {editing && <SourceEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存来源修改", async () => { await api(`/sources/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
@@ -343,9 +355,11 @@ function Crawler({ refresh, runTask, goTab }: { refresh: number; runTask: any; g
 
 function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; goTab: (tab: TabKey) => void }) {
   const [items, setItems] = useState<Topic[]>([]);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState<PageMeta | null>(null);
   const [editing, setEditing] = useState<Topic | null>(null);
-  const load = () => api("/topics").then((data) => setItems(data.items));
-  useEffect(() => { load(); }, [refresh]);
+  const load = () => api(`/topics?page=${page}`).then((data) => { setItems(data.items); setMeta(data); });
+  useEffect(() => { load(); }, [refresh, page]);
   async function generate(topic: Topic) {
     await runTask("正在生成内容包", async () => {
       await api(`/topics/${topic.id}/generate-content`, { method: "POST" });
@@ -371,6 +385,7 @@ function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; go
           </article>
         ))}
       </div>
+      <Pagination meta={meta} onPage={setPage} />
       {editing && <TopicEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存选题修改", async () => { await api(`/topics/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
   );
@@ -378,10 +393,12 @@ function Topics({ refresh, runTask, goTab }: { refresh: number; runTask: any; go
 
 function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
   const [items, setItems] = useState<Content[]>([]);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState<PageMeta | null>(null);
   const [selected, setSelected] = useState<any | null>(null);
   const [editing, setEditing] = useState<Content | null>(null);
-  const load = () => api("/contents").then((data) => setItems(data.items));
-  useEffect(() => { load(); }, [refresh]);
+  const load = () => api(`/contents?page=${page}`).then((data) => { setItems(data.items); setMeta(data); });
+  useEffect(() => { load(); }, [refresh, page]);
   async function openDetail(id: number) {
     const detail = await api(`/contents/${id}`);
     setSelected(detail);
@@ -414,6 +431,7 @@ function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
           </article>
         ))}
       </div>
+      <Pagination meta={meta} onPage={setPage} />
       {selected && <ContentDetail detail={selected} onClose={() => setSelected(null)} />}
       {editing && <ContentEditor item={editing} onClose={() => setEditing(null)} onSave={(body) => runTask("保存内容修改", async () => { await api(`/contents/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
@@ -423,14 +441,17 @@ function Contents({ refresh, runTask }: { refresh: number; runTask: any }) {
 function Metrics({ refresh, runTask }: { refresh: number; runTask: any }) {
   const [contents, setContents] = useState<Content[]>([]);
   const [metrics, setMetrics] = useState<Metric[]>([]);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState<PageMeta | null>(null);
   const [editing, setEditing] = useState<Metric | null>(null);
   const [form, setForm] = useState<any>({ platform: "wechat", views: 0, likes: 0, favorites: 0, comments: 0, shares: 0, followers_gain: 0, private_messages: 0, orders: 0 });
   const load = async () => {
-    const [contentData, metricData] = await Promise.all([api("/contents"), api("/publish-metrics")]);
+    const [contentData, metricData] = await Promise.all([api("/contents?page=1"), api(`/publish-metrics?page=${page}`)]);
     setContents(contentData.items);
     setMetrics(metricData.items);
+    setMeta(metricData);
   };
-  useEffect(() => { load(); }, [refresh]);
+  useEffect(() => { load(); }, [refresh, page]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     await runTask("保存发布复盘", async () => {
@@ -451,6 +472,7 @@ function Metrics({ refresh, runTask }: { refresh: number; runTask: any }) {
       </Panel>
       <Panel title="最近数据">
         <Rows items={metrics} render={(m) => (<><strong>{platformText(m.platform)} · 阅读 {m.views}</strong><span>赞 {m.likes} / 藏 {m.favorites} / 转发 {m.shares} / 订单 {m.orders} · 创建 {dateText(m.created_at)}</span><span className="row-actions"><button onClick={() => setEditing(m)}><Edit3 size={14} /> 编辑</button><button className="danger" onClick={() => runTask("删除复盘", async () => { await api(`/publish-metrics/${m.id}`, { method: "DELETE" }); await load(); })}><Trash2 size={14} /> 删除</button></span></>)} />
+        <Pagination meta={meta} onPage={setPage} />
       </Panel>
       {editing && <MetricEditor item={editing} contents={contents} onClose={() => setEditing(null)} onSave={(body) => runTask("保存复盘修改", async () => { await api(`/publish-metrics/${editing.id}`, { method: "PATCH", body }); setEditing(null); await load(); })} />}
     </Page>
@@ -617,6 +639,19 @@ function Stat({ label, value, tone }: { label: string; value?: number; tone?: st
 function Rows<T>({ items, render }: { items: T[]; render: (item: T) => React.ReactNode }) {
   if (!items.length) return <p className="empty">暂无数据</p>;
   return <div className="rows">{items.map((item, index) => <div className="row" key={index}>{render(item)}</div>)}</div>;
+}
+
+function Pagination({ meta, onPage }: { meta: PageMeta | null; onPage: (page: number) => void }) {
+  if (!meta || meta.total <= meta.pageSize) return null;
+  return (
+    <div className="pagination">
+      <span>共 {meta.total} 条 · 每页 {meta.pageSize} 条 · 第 {meta.page} / {meta.totalPages} 页</span>
+      <div>
+        <button disabled={meta.page <= 1} onClick={() => onPage(meta.page - 1)}>上一页</button>
+        <button disabled={meta.page >= meta.totalPages} onClick={() => onPage(meta.page + 1)}>下一页</button>
+      </div>
+    </div>
+  );
 }
 
 function Meta({ created, updated }: { created?: string; updated?: string }) {

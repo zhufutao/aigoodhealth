@@ -181,6 +181,20 @@ header {
   gap: 18px;
 }
 .row span { color: var(--muted); }
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.pagination div {
+  display: inline-flex;
+  gap: 8px;
+}
 .grid-form {
   grid-template-columns: 1.2fr 1.2fr .7fr .7fr;
 }
@@ -402,4 +416,5 @@ pre {
   .item-card, .item-card.wide, .crawl-box { grid-template-columns: 1fr; display: grid; }
   .detail-grid, .cards-preview { grid-template-columns: 1fr; }
   .drawer { width: 100%; }
+  .pagination { align-items: flex-start; flex-direction: column; }
 }

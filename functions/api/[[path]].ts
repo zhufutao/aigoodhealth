@@ -51,11 +51,11 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     if (!user) return json({ error: "UNAUTHORIZED" }, 401);
     if (path === "/auth/me" && method === "GET") return json({ user });
     if (path === "/dashboard/summary" && method === "GET") return dashboard(context.env);
-    if (path === "/sources" && method === "GET") return listSources(context.env);
+    if (path === "/sources" && method === "GET") return listSources(context);
     if (path === "/sources" && method === "POST") return createSource(context);
     if (match(path, /^\/sources\/(\d+)$/) && method === "PATCH") return updateSource(context, num(path));
     if (match(path, /^\/sources\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "sources", num(path));
-    if (path === "/materials" && method === "GET") return listMaterials(context.env);
+    if (path === "/materials" && method === "GET") return listMaterials(context);
     if (path === "/materials" && method === "POST") return createMaterial(context);
     if (match(path, /^\/materials\/(\d+)$/) && method === "GET") return getMaterial(context, num(path));
     if (match(path, /^\/materials\/(\d+)$/) && method === "PATCH") return updateMaterial(context, num(path));
@@ -63,19 +63,19 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     if (match(path, /^\/materials\/(\d+)\/parse$/) && method === "POST") return parseMaterial(context, num(path));
     if (match(path, /^\/materials\/(\d+)\/generate-topics$/) && method === "POST") return generateTopics(context, num(path));
     if (path === "/crawl/run" && method === "POST") return runCrawl(context);
-    if (path === "/crawl/runs" && method === "GET") return listCrawlRuns(context.env);
-    if (path === "/topics" && method === "GET") return listTopics(context.env);
+    if (path === "/crawl/runs" && method === "GET") return listCrawlRuns(context);
+    if (path === "/topics" && method === "GET") return listTopics(context);
     if (match(path, /^\/topics\/(\d+)$/) && method === "GET") return getTopic(context, num(path));
     if (match(path, /^\/topics\/(\d+)$/) && method === "PATCH") return updateTopic(context, num(path));
     if (match(path, /^\/topics\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "topics", num(path));
     if (match(path, /^\/topics\/(\d+)\/generate-content$/) && method === "POST") return generateContent(context, num(path));
-    if (path === "/contents" && method === "GET") return listContents(context.env);
+    if (path === "/contents" && method === "GET") return listContents(context);
     if (match(path, /^\/contents\/(\d+)$/) && method === "GET") return getContent(context, num(path));
     if (match(path, /^\/contents\/(\d+)$/) && method === "PATCH") return updateContent(context, num(path));
     if (match(path, /^\/contents\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "contents", num(path));
     if (match(path, /^\/contents\/(\d+)\/review$/) && method === "POST") return reviewContent(context, num(path));
     if (path === "/publish-metrics" && method === "POST") return createMetrics(context);
-    if (path === "/publish-metrics" && method === "GET") return listMetrics(context.env);
+    if (path === "/publish-metrics" && method === "GET") return listMetrics(context);
     if (match(path, /^\/publish-metrics\/(\d+)$/) && method === "PATCH") return updateMetrics(context, num(path));
     if (match(path, /^\/publish-metrics\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "publish_metrics", num(path));
 
@@ -133,9 +133,8 @@ async function dashboard(env: Env) {
   return json({ materials, topics, contents, metrics, risks, latest: latest.results || [] });
 }
 
-async function listSources(env: Env) {
-  const rows = await env.DB.prepare("SELECT * FROM sources ORDER BY level, id").all();
-  return json({ items: rows.results || [] });
+async function listSources({ request, env }: PagesContext) {
+  return paginated(env, request, "sources", "ORDER BY level, id");
 }
 
 async function createSource({ request, env }: PagesContext) {
@@ -156,9 +155,8 @@ async function updateSource({ request, env }: PagesContext, id: number) {
   return json({ ok: true });
 }
 
-async function listMaterials(env: Env) {
-  const rows = await env.DB.prepare("SELECT * FROM materials ORDER BY id DESC LIMIT 100").all();
-  return json({ items: rows.results || [] });
+async function listMaterials({ request, env }: PagesContext) {
+  return paginated(env, request, "materials", "ORDER BY id DESC");
 }
 
 async function getMaterial({ env }: PagesContext, id: number) {
@@ -264,9 +262,8 @@ async function generateTopics({ env }: PagesContext, materialId: number) {
   }
 }
 
-async function listTopics(env: Env) {
-  const rows = await env.DB.prepare("SELECT * FROM topics ORDER BY id DESC LIMIT 100").all();
-  return json({ items: rows.results || [] });
+async function listTopics({ request, env }: PagesContext) {
+  return paginated(env, request, "topics", "ORDER BY id DESC");
 }
 
 async function getTopic({ env }: PagesContext, id: number) {
@@ -310,9 +307,8 @@ async function generateContent({ env }: PagesContext, topicId: number) {
   }
 }
 
-async function listContents(env: Env) {
-  const rows = await env.DB.prepare("SELECT * FROM contents ORDER BY id DESC LIMIT 100").all();
-  return json({ items: rows.results || [] });
+async function listContents({ request, env }: PagesContext) {
+  return paginated(env, request, "contents", "ORDER BY id DESC");
 }
 
 async function getContent({ env }: PagesContext, id: number) {
@@ -381,9 +377,8 @@ async function createMetrics({ request, env }: PagesContext) {
   return json({ id: result.meta.last_row_id });
 }
 
-async function listMetrics(env: Env) {
-  const rows = await env.DB.prepare("SELECT * FROM publish_metrics ORDER BY id DESC LIMIT 100").all();
-  return json({ items: rows.results || [] });
+async function listMetrics({ request, env }: PagesContext) {
+  return paginated(env, request, "publish_metrics", "ORDER BY id DESC");
 }
 
 async function updateMetrics({ request, env }: PagesContext, id: number) {
@@ -440,9 +435,8 @@ async function runCrawl({ env }: PagesContext) {
   }
 }
 
-async function listCrawlRuns(env: Env) {
-  const rows = await env.DB.prepare("SELECT * FROM crawl_runs ORDER BY id DESC LIMIT 20").all();
-  return json({ items: rows.results || [] });
+async function listCrawlRuns({ request, env }: PagesContext) {
+  return paginated(env, request, "crawl_runs", "ORDER BY id DESC");
 }
 
 async function crawlNhc() {
@@ -787,6 +781,18 @@ function fromB64(input: string) {
 async function scalar(env: Env, sql: string) {
   const row = await env.DB.prepare(sql).first<any>();
   return Object.values(row || {})[0] || 0;
+}
+
+async function paginated(env: Env, request: Request, table: string, orderBy: string) {
+  const allowed = new Set(["sources", "materials", "topics", "contents", "publish_metrics", "crawl_runs"]);
+  if (!allowed.has(table)) return json({ error: "不允许查询该表" }, 400);
+  const url = new URL(request.url);
+  const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+  const pageSize = 20;
+  const offset = (page - 1) * pageSize;
+  const total = await scalar(env, `SELECT COUNT(*) FROM ${table}`);
+  const rows = await env.DB.prepare(`SELECT * FROM ${table} ${orderBy} LIMIT ? OFFSET ?`).bind(pageSize, offset).all();
+  return json({ items: rows.results || [], page, pageSize, total, totalPages: Math.max(1, Math.ceil(Number(total) / pageSize)) });
 }
 
 function json(data: unknown, status = 200, headers: Record<string, string> = {}) {
