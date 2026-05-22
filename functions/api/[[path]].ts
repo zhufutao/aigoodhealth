@@ -566,7 +566,8 @@ async function topicsWithAi(env: Env, material: any) {
 2. 选题要有痛点，但不能恐吓、不能治疗承诺。
 3. 人工素材只可用作灵感；若素材不是权威来源，content_angle 中必须提醒需要补权威依据。
 4. 尽量转成食谱、清单、图卡、海报或一周食谱。
-5. 只输出 JSON。
+5. 禁止使用“救命、救星、告别、拯救、搞定、福音、必看、来袭、调理异常、轻松调理”等标题党和医疗暗示表达。
+6. 只输出 JSON。
 
 输出 JSON：
 {
@@ -589,7 +590,7 @@ ${JSON.stringify(material).slice(0, 14000)}`;
   const ai = requireObject(await callAI(env, prompt), "AI 选题结果不是合法 JSON 对象");
   const topics = ai.candidate_topics;
   if (!Array.isArray(topics) || topics.length === 0) throw new Error("AI 没有返回 candidate_topics");
-  return topics.slice(0, 5);
+  return topics.slice(0, 5).map(sanitizeTopic);
 }
 
 async function contentWithAi(env: Env, topic: any, materials: any[]) {
@@ -602,8 +603,10 @@ async function contentWithAi(env: Env, topic: any, materials: any[]) {
 4. 如适合，生成一周食谱或至少 3 天食谱。
 5. 生成图片 prompt，但图片中不要包含中文文字。
 6. 不得使用“专治、根治、治愈、7天见效、湿气全无、排毒、刮油、神方、秘方、一定有效、所有人都适合”等表达。
-7. 必须包含“日常饮食参考”“不替代医疗建议”“有明显不适建议就医”等边界。
-8. 只输出 JSON。
+7. 不得使用“救命、救星、告别、搞定、轻松调理、调理异常、拯救、必看、来袭、福音”等营销化或医疗暗示表达。
+8. 对经期、睡眠、脾胃等问题只能写“日常饮食参考/生活方式参考”，不能写成改善、调理、解决异常。
+9. 必须包含“日常饮食参考”“不替代医疗建议”“有明显不适建议就医”等边界。
+10. 只输出 JSON。
 
 输出 JSON：
 {
@@ -635,7 +638,7 @@ ${JSON.stringify(topic)}
 ${JSON.stringify(materials).slice(0, 18000)}`;
   const ai = requireObject(await callAI(env, prompt), "AI 内容包结果不是合法 JSON 对象");
   if (!ai.wechat_article || !Array.isArray(ai.xiaohongshu_cards)) throw new Error("AI 内容包缺少公众号正文或小红书图卡");
-  return ai;
+  return sanitizeContent(ai);
 }
 
 async function reviewWithAi(env: Env, text: string) {
@@ -830,5 +833,38 @@ function asText(value: any) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizeTopic(topic: any) {
+  return {
+    ...topic,
+    title: sanitizeHealthText(topic.title || ""),
+    core_pain: sanitizeHealthText(topic.core_pain || ""),
+    content_angle: sanitizeHealthText(topic.content_angle || ""),
+    reason: sanitizeHealthText(topic.reason || ""),
+  };
+}
+
+function sanitizeContent(content: any) {
+  return JSON.parse(sanitizeHealthText(JSON.stringify(content)));
+}
+
+function sanitizeHealthText(text: string) {
+  return text
+    .replace(/救命/g, "日常参考")
+    .replace(/救星/g, "参考清单")
+    .replace(/告别/g, "减少困扰")
+    .replace(/拯救/g, "作为参考")
+    .replace(/轻松调理异常/g, "作为日常饮食参考")
+    .replace(/调理异常/g, "日常参考")
+    .replace(/轻松搞定/g, "日常参考")
+    .replace(/搞定/g, "参考")
+    .replace(/必看/g, "可参考")
+    .replace(/福音/g, "参考")
+    .replace(/来袭/g, "到来")
+    .replace(/改善/g, "作为生活方式调整参考")
+    .replace(/调理/g, "日常参考")
+    .replace(/治疗/g, "就医咨询")
+    .replace(/疗效/g, "参考价值");
 }
 
