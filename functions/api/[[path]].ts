@@ -741,7 +741,7 @@ async function callArkImage(env: Env, prompt: string) {
   if (!env.ARK_API_KEY) {
     throw new Error("未配置 ARK_API_KEY，无法调用火山方舟图片生成。");
   }
-  const model = env.ARK_IMAGE_MODEL || "doubao-seedream-4-0-250828";
+  const model = env.ARK_IMAGE_MODEL || "doubao-seedream-5-0-260128";
   const baseUrl = (env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
   const res = await fetch(`${baseUrl}/images/generations`, {
     method: "POST",
@@ -750,7 +750,7 @@ async function callArkImage(env: Env, prompt: string) {
       model,
       prompt,
       response_format: "url",
-      size: "1024x1024",
+      size: "1920x1920",
     }),
   });
   if (!res.ok) {
