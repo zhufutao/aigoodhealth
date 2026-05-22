@@ -2,6 +2,7 @@
 type Env = {
   DB: D1Database;
   OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
   SESSION_SECRET?: string;
@@ -201,7 +202,7 @@ async function updateMaterial({ request, env }: PagesContext, id: number) {
 async function parseMaterial({ env }: PagesContext, id: number) {
   const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(id).first<any>();
   if (!material) return json({ error: "素材不存在" }, 404);
-  const parsed = await parseWithAiOrFallback(env, material);
+  const parsed = await parseWithAi(env, material);
   await env.DB.prepare(`
     UPDATE materials SET summary=?, keywords=?, topic_tags=?, target_users=?, food_ingredients=?,
       suitable_for_recipe=?, suitable_for_poster=?, suitable_for_xiaohongshu=?, suitable_for_wechat_article=?,
@@ -228,7 +229,7 @@ async function parseMaterial({ env }: PagesContext, id: number) {
 async function generateTopics({ env }: PagesContext, materialId: number) {
   const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(materialId).first<any>();
   if (!material) return json({ error: "素材不存在" }, 404);
-  const topics = await topicsWithAiOrFallback(env, material);
+  const topics = await topicsWithAi(env, material);
   for (const topic of topics) {
     await env.DB.prepare(`
       INSERT INTO topics (title, core_pain, target_user, topic_tags, related_material_ids, official_source_count, manual_source_count, content_angle, recipe_potential, poster_potential, risk_level)
@@ -275,7 +276,7 @@ async function generateContent({ env }: PagesContext, topicId: number) {
   if (!topic) return json({ error: "选题不存在" }, 404);
   const ids = safeJsonParse<number[]>(topic.related_material_ids, []);
   const materials = ids.length ? (await env.DB.prepare(`SELECT * FROM materials WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all()).results : [];
-  const content = await contentWithAiOrFallback(env, topic, materials || []);
+  const content = await contentWithAi(env, topic, materials || []);
   const result = await env.DB.prepare(`
     INSERT INTO contents (topic_id, platform, content_type, title, body, poster_text, card_text, recipe_json, image_prompt, risk_warnings)
     VALUES (?, 'multi', 'content_pack', ?, ?, ?, ?, ?, ?, ?)
@@ -283,7 +284,7 @@ async function generateContent({ env }: PagesContext, topicId: number) {
     topicId,
     content.wechat_titles?.[0] || topic.title,
     content.wechat_article,
-    content.poster_text,
+    asText(content.poster_text),
     JSON.stringify(content.xiaohongshu_cards),
     JSON.stringify(content.recipe),
     content.image_prompt,
@@ -328,7 +329,7 @@ async function reviewContent({ env }: PagesContext, contentId: number) {
   const content = await env.DB.prepare("SELECT * FROM contents WHERE id = ?").bind(contentId).first<any>();
   if (!content) return json({ error: "内容不存在" }, 404);
   const text = [content.title, content.body, content.poster_text, content.card_text, content.risk_warnings].join("\n");
-  const review = await reviewWithAiOrFallback(env, text);
+  const review = await reviewWithAi(env, text);
   await env.DB.prepare(`
     INSERT INTO content_reviews (content_id, risk_level, problem_sentences, suggested_rewrites, missing_disclaimer)
     VALUES (?, ?, ?, ?, ?)
@@ -503,103 +504,183 @@ function cleanHtml(html: string) {
     .trim();
 }
 
-async function parseWithAiOrFallback(env: Env, material: any) {
-  const prompt = `你是健康养生内容编辑助手。请解析素材，输出 JSON，字段 summary, keywords, topic_tags, target_users, food_ingredients, core_pain, suitable_for_recipe, suitable_for_poster, suitable_for_xiaohongshu, suitable_for_wechat_article, risk_level, risk_notes, official_match_keywords, candidate_topics。素材：${JSON.stringify(material).slice(0, 9000)}`;
-  const ai = await callOpenAI(env, prompt);
-  if (ai) return ai;
-  const text = `${material.title || ""}\n${material.raw_content || material.summary || ""}`;
-  const risks = findRiskTerms(text);
-  return {
-    summary: text.slice(0, 180) || "待补充摘要",
-    keywords: pickKeywords(text),
-    topic_tags: ["上班族饮食", "健康科普", material.source_type === "official_auto" ? "权威依据" : "选题灵感"],
-    target_users: ["久坐上班族", "外卖较多的人", "想做日常饮食调整的人"],
-    food_ingredients: [],
-    core_pain: "想用更稳妥的日常饮食方式改善生活状态",
-    suitable_for_recipe: true,
-    suitable_for_poster: true,
-    suitable_for_xiaohongshu: true,
-    suitable_for_wechat_article: true,
-    risk_level: risks.length ? "medium" : "low",
-    risk_notes: risks,
-    official_match_keywords: ["合理膳食", "食物多样", "少油少盐", "膳食指南"],
-    candidate_topics: [],
-  };
+async function parseWithAi(env: Env, material: any) {
+  const prompt = `请把以下健康养生素材解析成结构化 JSON。
+
+必须注意：
+1. 不要截取原文开头当摘要，要用自己的话概括核心信息。
+2. 人工素材只能作为选题灵感，不能直接作为健康依据。
+3. 标出诊断化、疗效化、夸张化、绝对化风险。
+4. 给出后续需要匹配的权威关键词。
+5. 只输出 JSON。
+
+JSON 字段：
+{
+  "summary": "80-160字，提炼核心观点和可用角度",
+  "keywords": ["关键词"],
+  "topic_tags": ["主题标签"],
+  "target_users": ["目标人群"],
+  "food_ingredients": ["食材"],
+  "core_pain": "用户痛点",
+  "suitable_for_recipe": true,
+  "suitable_for_poster": true,
+  "suitable_for_xiaohongshu": true,
+  "suitable_for_wechat_article": true,
+  "risk_level": "low/medium/high",
+  "risk_notes": ["风险说明"],
+  "official_match_keywords": ["权威匹配关键词"],
+  "candidate_topics": ["可选题方向"]
 }
 
-async function topicsWithAiOrFallback(env: Env, material: any) {
-  const prompt = `你是面向上班族中式养生食谱号的选题编辑。基于素材生成 5 个选题，输出 {"candidate_topics":[{"title":"","core_pain":"","target_user":"","content_angle":"","content_types":[],"risk_level":"","reason":""}]}。素材：${JSON.stringify(material).slice(0, 9000)}`;
-  const ai = await callOpenAI(env, prompt);
-  const topics = ai?.candidate_topics;
-  if (Array.isArray(topics) && topics.length) return topics.map((t: any) => ({ ...t, topic_tags: ["上班族饮食", "中式家常", "日常饮食参考"] }));
-  const base = material.title || "合理膳食";
-  return [
-    { title: `外卖吃多了，上班族晚餐先做 4 个减法`, core_pain: "晚餐重口、油盐偏多", target_user: "外卖多的上班族", content_angle: `结合「${base}」转成家常晚餐清单`, topic_tags: ["晚餐", "少油少盐"], risk_level: "low" },
-    { title: `一周轻负担家常饭：照着这个思路搭配就好`, core_pain: "想吃得清淡但不知道怎么搭", target_user: "想养生但没时间的人", content_angle: "用权威膳食原则拆成一周食谱", topic_tags: ["一周食谱", "家常"], risk_level: "low" },
-    { title: `久坐上班族的午餐盒：主食、蔬菜、蛋白质怎么放`, core_pain: "午餐结构单一", target_user: "久坐上班族", content_angle: "把合理膳食变成饭盒比例", topic_tags: ["午餐", "饭盒"], risk_level: "low" },
-  ];
+素材 JSON：
+${JSON.stringify(material).slice(0, 14000)}`;
+  return requireObject(await callOpenAI(env, prompt), "AI 解析结果不是合法 JSON 对象");
 }
 
-async function contentWithAiOrFallback(env: Env, topic: any, materials: any[]) {
-  const prompt = `请基于选题和素材生成内容包，输出 JSON：wechat_titles, xiaohongshu_titles, wechat_article, xiaohongshu_cards, poster_text, recipe, image_prompt, risk_warnings, medical_disclaimer。禁止专治、根治、治愈、7天见效、湿气全无、排毒、刮油、神方、秘方。选题：${JSON.stringify(topic)} 素材：${JSON.stringify(materials).slice(0, 12000)}`;
-  const ai = await callOpenAI(env, prompt);
-  if (ai?.wechat_article) return ai;
-  return {
-    wechat_titles: [topic.title, `${topic.title}，日常饮食参考版`, `给上班族的清淡吃法清单`],
-    xiaohongshu_titles: [topic.title, "上班族家常饮食参考", "外卖多的人可以看看"],
-    wechat_article: `# ${topic.title}\n\n这份内容基于权威健康科普原则整理，适合作为日常饮食参考。\n\n## 为什么值得做\n${topic.core_pain || "很多上班族饮食节奏快，容易油盐偏多、蔬菜不足。"}\n\n## 家常做法\n1. 每餐先保证一份蔬菜。\n2. 主食尽量粗细搭配。\n3. 蛋白质选择鸡蛋、鱼虾、豆制品、瘦肉等常见食材。\n4. 调味少油少盐，避免把清淡饮食写成治疗方案。\n\n## 边界提醒\n仅作日常饮食参考，不替代医疗建议。有明显不适、基础疾病、孕期、儿童、老人或特殊饮食限制，请按医生或营养师建议调整。`,
-    xiaohongshu_cards: ["封面：" + topic.title, "痛点：外卖多、晚餐重口、蔬菜少", "原则：食物多样，少油少盐", "搭配：主食+蔬菜+蛋白质", "食谱：清炒时蔬、番茄豆腐汤、杂粮饭", "提醒：不替代医疗建议"],
-    poster_text: `${topic.title}\n主食粗细搭配 / 每餐一份蔬菜 / 蛋白质别省 / 少油少盐\n仅作日常饮食参考，不替代医疗建议。`,
-    recipe: [
-      { day: "周一", dinner: "杂粮饭 + 番茄豆腐汤 + 清炒油麦菜" },
-      { day: "周二", dinner: "米饭 + 香菇鸡胸肉 + 凉拌黄瓜" },
-      { day: "周三", dinner: "红薯 + 西兰花虾仁 + 紫菜蛋花汤" },
-    ],
-    image_prompt: "A clean editorial food photography scene with Chinese home-style dinner, vegetables, grains and tofu, natural daylight, no text in image",
-    risk_warnings: ["避免使用治疗承诺和绝对化表达。"],
-    medical_disclaimer: "仅作日常饮食参考，不替代医疗建议。有明显不适建议就医。",
-  };
+async function topicsWithAi(env: Env, material: any) {
+  const prompt = `你是面向公众号和小红书的上班族中式养生食谱选题编辑。
+请基于以下素材生成 3-5 个候选选题。
+
+要求：
+1. 选题面向久坐、外卖多、睡眠浅、熬夜、想养生但没时间的人。
+2. 选题要有痛点，但不能恐吓、不能治疗承诺。
+3. 人工素材只可用作灵感；若素材不是权威来源，content_angle 中必须提醒需要补权威依据。
+4. 尽量转成食谱、清单、图卡、海报或一周食谱。
+5. 只输出 JSON。
+
+输出 JSON：
+{
+  "candidate_topics": [
+    {
+      "title": "",
+      "core_pain": "",
+      "target_user": "",
+      "content_angle": "",
+      "content_types": ["公众号长文", "小红书图卡", "海报文案"],
+      "topic_tags": ["标签"],
+      "risk_level": "low/medium/high",
+      "reason": ""
+    }
+  ]
 }
 
-async function reviewWithAiOrFallback(env: Env, text: string) {
-  const prompt = `请审核健康养生内容，输出 JSON：risk_level, problem_sentences, suggested_rewrites, missing_disclaimer。内容：${text.slice(0, 12000)}`;
-  const ai = await callOpenAI(env, prompt);
-  if (ai?.risk_level) return ai;
-  const problems = findRiskTerms(text);
-  return {
-    risk_level: problems.length ? "medium" : "low",
-    problem_sentences: problems,
-    suggested_rewrites: problems.map((term) => ({ from: term, to: "日常饮食参考/生活方式调整的一部分" })),
-    missing_disclaimer: !/不替代医疗建议|建议就医|医生|营养师/.test(text),
-  };
+素材 JSON：
+${JSON.stringify(material).slice(0, 14000)}`;
+  const ai = requireObject(await callOpenAI(env, prompt), "AI 选题结果不是合法 JSON 对象");
+  const topics = ai.candidate_topics;
+  if (!Array.isArray(topics) || topics.length === 0) throw new Error("AI 没有返回 candidate_topics");
+  return topics.slice(0, 5);
+}
+
+async function contentWithAi(env: Env, topic: any, materials: any[]) {
+  const prompt = `请基于选题和关联素材，生成可人工审核后发布的完整内容包。
+
+硬性要求：
+1. 生成公众号文章，不是摘要，包含标题、导语、小标题、正文、结尾提醒。
+2. 生成小红书 6 图卡文案，每张卡要有标题和正文，适合直接排版成图。
+3. 生成单张海报文案，标题、副标题、3-5 个短要点、底部提醒。
+4. 如适合，生成一周食谱或至少 3 天食谱。
+5. 生成图片 prompt，但图片中不要包含中文文字。
+6. 不得使用“专治、根治、治愈、7天见效、湿气全无、排毒、刮油、神方、秘方、一定有效、所有人都适合”等表达。
+7. 必须包含“日常饮食参考”“不替代医疗建议”“有明显不适建议就医”等边界。
+8. 只输出 JSON。
+
+输出 JSON：
+{
+  "wechat_titles": ["公众号标题1", "公众号标题2", "公众号标题3"],
+  "xiaohongshu_titles": ["小红书标题1", "小红书标题2", "小红书标题3"],
+  "wechat_article": "完整公众号 Markdown 正文",
+  "xiaohongshu_cards": [
+    {"card": 1, "title": "封面标题", "body": "图卡正文"},
+    {"card": 2, "title": "", "body": ""}
+  ],
+  "poster_text": {
+    "title": "",
+    "subtitle": "",
+    "points": ["", ""],
+    "disclaimer": ""
+  },
+  "recipe": [
+    {"day": "周一", "breakfast": "", "lunch": "", "dinner": "", "note": ""}
+  ],
+  "image_prompt": "English prompt for food photography or poster background, no Chinese text",
+  "risk_warnings": ["风险提醒"],
+  "medical_disclaimer": ""
+}
+
+选题：
+${JSON.stringify(topic)}
+
+关联素材：
+${JSON.stringify(materials).slice(0, 18000)}`;
+  const ai = requireObject(await callOpenAI(env, prompt), "AI 内容包结果不是合法 JSON 对象");
+  if (!ai.wechat_article || !Array.isArray(ai.xiaohongshu_cards)) throw new Error("AI 内容包缺少公众号正文或小红书图卡");
+  return ai;
+}
+
+async function reviewWithAi(env: Env, text: string) {
+  const prompt = `请审核以下健康养生内容，找出风险表达，并输出 JSON。
+
+重点检查：
+- 医疗承诺
+- 绝对化表达
+- 恐吓式表达
+- 食谱替代治疗
+- 中医概念过度诊断化
+- 特殊人群提醒遗漏
+
+输出 JSON：
+{
+  "risk_level": "low/medium/high",
+  "problem_sentences": ["问题句"],
+  "suggested_rewrites": [{"from": "原表达", "to": "替代表达"}],
+  "missing_disclaimer": true
+}
+
+内容：
+${text.slice(0, 18000)}`;
+  return requireObject(await callOpenAI(env, prompt), "AI 审核结果不是合法 JSON 对象");
 }
 
 async function callOpenAI(env: Env, prompt: string) {
-  if (!env.OPENAI_API_KEY) return null;
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  if (!env.OPENAI_API_KEY) {
+    throw new Error("未配置 OPENAI_API_KEY，无法进行真实 AI 调用。请在 Cloudflare Pages 环境变量中添加 OPENAI_API_KEY。");
+  }
+  const model = env.OPENAI_MODEL || "gpt-5.2";
+  const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: "gpt-4.1-mini",
-      messages: [
-        { role: "system", content: "你只输出可解析 JSON，不输出 markdown。" },
+      model,
+      input: [
+        { role: "system", content: "你是健康养生食谱内容系统的 AI 助手。你只输出可解析 JSON，不输出 markdown，不输出解释文字。" },
         { role: "user", content: prompt },
       ],
-      temperature: 0.4,
-      response_format: { type: "json_object" },
+      text: { format: { type: "json_object" } },
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`OpenAI 调用失败：${res.status} ${errorText.slice(0, 500)}`);
+  }
   const data = await res.json<any>();
-  return safeJsonParse(data.choices?.[0]?.message?.content, null);
+  return safeJsonParse(extractOutputText(data), null);
 }
 
-function findRiskTerms(text: string) {
-  return ["专治", "根治", "治愈", "7天见效", "湿气全无", "排毒", "刮油", "神方", "秘方", "一定有效", "所有人都适合", "不吃药也能好"].filter((term) => text.includes(term));
+function extractOutputText(data: any) {
+  if (typeof data.output_text === "string") return data.output_text;
+  const chunks: string[] = [];
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") chunks.push(content.text);
+    }
+  }
+  return chunks.join("\n");
 }
 
-function pickKeywords(text: string) {
-  return ["合理膳食", "蔬菜", "水果", "全谷物", "少油少盐", "上班族", "家常饭"].filter((term) => text.includes(term) || Math.random() > 0.65).slice(0, 5);
+function requireObject(value: any, message: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
+  return value;
 }
 
 async function hashPassword(password: string) {
@@ -688,4 +769,8 @@ function uniqueBy<T>(items: T[], fn: (item: T) => string) {
 
 function normalizeTitle(title: string) {
   return title.replace(/\d{4}-\d{2}-\d{2}/g, "").replace(/\s+/g, " ").trim();
+}
+
+function asText(value: any) {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }

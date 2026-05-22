@@ -19,6 +19,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import MDEditor from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
+import "@uiw/react-markdown-preview/markdown.css";
 import "./App.css";
 
 type Material = {
@@ -467,7 +470,7 @@ function MaterialDetail({ item, onClose }: { item: Material; onClose: () => void
       <DetailBlock title="食材" content={jsonText(item.food_ingredients)} />
       <DetailBlock title="风险说明" content={jsonText(item.risk_notes)} />
       <DetailBlock title="权威匹配关键词" content={jsonText(item.official_match_keywords)} />
-      <DetailBlock title="原始内容" content={item.raw_content || ""} />
+      <DetailBlock title="原始内容" content={item.raw_content || ""} markdown />
     </Drawer>
   );
 }
@@ -483,12 +486,12 @@ function ContentDetail({ detail, onClose }: { detail: any; onClose: () => void }
       <p className="badge">{statusText(item.review_status)} · {statusText(item.publish_status)}</p>
       <Meta created={item.created_at} updated={item.updated_at} />
       <div className="detail-grid">
-        <DetailBlock title="公众号正文" content={item.body} />
+        <DetailBlock title="公众号正文" content={item.body} markdown />
         <section className="detail-block">
           <h3>小红书 6 图卡</h3>
-          <div className="cards-preview">{cards.map((card, index) => <div className="mini-card" key={index}><span>图 {index + 1}</span><p>{String(card)}</p></div>)}</div>
+          <div className="cards-preview">{cards.map((card, index) => <div className="mini-card" key={index}><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p></div>)}</div>
         </section>
-        <DetailBlock title="单张海报文案" content={item.poster_text} />
+        <DetailBlock title="单张海报文案" content={item.poster_text} markdown />
         <section className="detail-block">
           <h3>一周食谱/食谱表</h3>
           <pre>{JSON.stringify(recipe, null, 2)}</pre>
@@ -514,8 +517,8 @@ function MaterialEditor({ item, onClose, onSave }: { item: Material; onClose: ()
     <input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
     <input value={form.url || ""} onChange={(e) => setForm({ ...form, url: e.target.value })} />
     <select value={form.source_level || "C"} onChange={(e) => setForm({ ...form, source_level: e.target.value })}><option value="S">S级 权威机构</option><option value="A">A级 专业机构</option><option value="B">B级 主流媒体</option><option value="C">C级 人工灵感</option><option value="D">D级 高风险参考</option></select>
-    <textarea value={form.raw_content || ""} onChange={(e) => setForm({ ...form, raw_content: e.target.value })} />
-    <textarea value={form.manual_note || ""} onChange={(e) => setForm({ ...form, manual_note: e.target.value })} />
+    <label>原始内容<RichEditor value={form.raw_content || ""} onChange={(value) => setForm({ ...form, raw_content: value })} /></label>
+    <label>备注<RichEditor value={form.manual_note || ""} onChange={(value) => setForm({ ...form, manual_note: value })} height={260} /></label>
   </EditorShell>;
 }
 
@@ -543,11 +546,11 @@ function ContentEditor({ item, onClose, onSave }: { item: Content; onClose: () =
   const [form, setForm] = useState<any>({ ...item });
   return <EditorShell title="编辑内容包" onClose={onClose} onSave={() => onSave(form)}>
     <input value={form.title || ""} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-    <textarea value={form.body || ""} onChange={(e) => setForm({ ...form, body: e.target.value })} />
-    <textarea value={form.card_text || ""} onChange={(e) => setForm({ ...form, card_text: e.target.value })} />
-    <textarea value={form.poster_text || ""} onChange={(e) => setForm({ ...form, poster_text: e.target.value })} />
-    <textarea value={form.recipe_json || ""} onChange={(e) => setForm({ ...form, recipe_json: e.target.value })} />
-    <textarea value={form.image_prompt || ""} onChange={(e) => setForm({ ...form, image_prompt: e.target.value })} />
+    <label>公众号正文<RichEditor value={form.body || ""} onChange={(value) => setForm({ ...form, body: value })} /></label>
+    <label>小红书图卡 JSON<RichEditor value={form.card_text || ""} onChange={(value) => setForm({ ...form, card_text: value })} /></label>
+    <label>海报文案<RichEditor value={form.poster_text || ""} onChange={(value) => setForm({ ...form, poster_text: value })} height={300} /></label>
+    <label>食谱 JSON<RichEditor value={form.recipe_json || ""} onChange={(value) => setForm({ ...form, recipe_json: value })} height={300} /></label>
+    <label>图片 Prompt<RichEditor value={form.image_prompt || ""} onChange={(value) => setForm({ ...form, image_prompt: value })} height={220} /></label>
   </EditorShell>;
 }
 
@@ -587,8 +590,16 @@ function Drawer({ title, children, onClose, wide }: { title: string; children: R
   );
 }
 
-function DetailBlock({ title, content }: { title: string; content: string }) {
-  return <section className="detail-block"><h3>{title}</h3><pre>{content || "暂无"}</pre></section>;
+function DetailBlock({ title, content, markdown }: { title: string; content: string; markdown?: boolean }) {
+  return <section className="detail-block" data-color-mode="light"><h3>{title}</h3>{markdown ? <div className="markdown-view"><MDEditor.Markdown source={content || "暂无"} /></div> : <pre>{content || "暂无"}</pre>}</section>;
+}
+
+function RichEditor({ value, onChange, height = 420 }: { value: string; onChange: (value: string) => void; height?: number }) {
+  return (
+    <div className="rich-editor" data-color-mode="light">
+      <MDEditor value={value} onChange={(next) => onChange(next || "")} height={height} preview="edit" />
+    </div>
+  );
 }
 
 function Page({ title, intro, children }: { title: string; intro: string; children: React.ReactNode }) {
@@ -661,6 +672,19 @@ function jsonText(text?: string) {
   } catch {
     return text;
   }
+}
+
+function cardTitle(card: unknown) {
+  if (card && typeof card === "object" && "title" in card) return String((card as any).title || "");
+  return "";
+}
+
+function cardBody(card: unknown) {
+  if (card && typeof card === "object") {
+    const value = card as any;
+    return String(value.body || value.text || JSON.stringify(value, null, 2));
+  }
+  return String(card || "");
 }
 
 export default App;

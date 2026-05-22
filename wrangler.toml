@@ -10,3 +10,4 @@ database_id = "7a46f127-5340-4af4-9162-d7482160f963"
 [vars]
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin123456"
+OPENAI_MODEL = "gpt-5.5"

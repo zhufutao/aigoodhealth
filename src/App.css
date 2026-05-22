@@ -329,6 +329,26 @@ pre {
   color: var(--ink);
   max-height: none;
 }
+.markdown-view {
+  background: #fff;
+  color: var(--ink);
+  line-height: 1.72;
+}
+.rich-editor {
+  width: 100%;
+}
+.rich-editor .w-md-editor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.rich-editor .w-md-editor-toolbar {
+  border-radius: 8px 8px 0 0;
+}
+.editor-form label {
+  color: var(--muted);
+  font-size: 14px;
+}
 .cards-preview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -347,6 +367,10 @@ pre {
   font-size: 12px;
   font-weight: 900;
   margin-bottom: 8px;
+}
+.mini-card h4 {
+  margin: 0 0 8px;
+  font-size: 16px;
 }
 .mini-card p {
   white-space: pre-wrap;

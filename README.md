@@ -8,7 +8,7 @@
 - 人工素材录入
 - 国家卫生健康委健康科普辟谣平台抓取入口
 - S 级权威素材入库
-- AI 素材解析接口，未配置 OpenAI 时使用保守规则兜底
+- AI 素材解析接口，必须配置 OpenAI Key 才会执行真实生成
 - 选题生成
 - 公众号/小红书/海报/食谱内容包生成
 - 健康内容风险审核
@@ -20,7 +20,8 @@
 - React + Vite
 - Cloudflare Pages Functions
 - Cloudflare D1
-- OpenAI API，可选
+- OpenAI API
+- @uiw/react-md-editor 开源 Markdown 编辑器
 
 ## 本地开发
 
@@ -63,8 +64,9 @@ npm run cf:deploy
 - `ADMIN_PASSWORD`
 - `SESSION_SECRET`
 - `OPENAI_API_KEY`
+- `OPENAI_MODEL`，默认项目配置为 `gpt-5.5`，如果你的 API 账号没有该模型权限，请改成账号可用的模型
 
-未配置 `OPENAI_API_KEY` 时，系统仍能用规则兜底跑完整流程，但生成质量会弱一些。
+未配置 `OPENAI_API_KEY` 时，AI 解析、选题生成、内容生成、风险审核会明确报错，不会再用截取或模板冒充 AI 结果。
 
 ## 权威抓取说明
 
