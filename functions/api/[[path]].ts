@@ -6,6 +6,7 @@ type Env = {
   OPENAI_MODEL?: string;
   ARK_API_KEY?: string;
   ARK_MODEL?: string;
+  ARK_IMAGE_MODEL?: string;
   ARK_BASE_URL?: string;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
@@ -74,6 +75,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     if (match(path, /^\/contents\/(\d+)$/) && method === "PATCH") return updateContent(context, num(path));
     if (match(path, /^\/contents\/(\d+)$/) && method === "DELETE") return deleteRow(context.env, "contents", num(path));
     if (match(path, /^\/contents\/(\d+)\/review$/) && method === "POST") return reviewContent(context, num(path));
+    if (match(path, /^\/contents\/(\d+)\/generate-images$/) && method === "POST") return generateContentImages(context, num(path));
     if (path === "/publish-metrics" && method === "POST") return createMetrics(context);
     if (path === "/publish-metrics" && method === "GET") return listMetrics(context);
     if (match(path, /^\/publish-metrics\/(\d+)$/) && method === "PATCH") return updateMetrics(context, num(path));
@@ -314,7 +316,8 @@ async function listContents({ request, env }: PagesContext) {
 async function getContent({ env }: PagesContext, id: number) {
   const item = await env.DB.prepare("SELECT * FROM contents WHERE id = ?").bind(id).first();
   const reviews = await env.DB.prepare("SELECT * FROM content_reviews WHERE content_id = ? ORDER BY id DESC").bind(id).all();
-  return item ? json({ item, reviews: reviews.results || [] }) : json({ error: "NOT_FOUND" }, 404);
+  const images = await env.DB.prepare("SELECT * FROM content_images WHERE content_id = ? ORDER BY image_type, card_index, id").bind(id).all();
+  return item ? json({ item, reviews: reviews.results || [], images: images.results || [] }) : json({ error: "NOT_FOUND" }, 404);
 }
 
 async function updateContent({ request, env }: PagesContext, id: number) {
@@ -349,6 +352,48 @@ async function reviewContent({ env }: PagesContext, contentId: number) {
     `).bind(contentId, review.risk_level, JSON.stringify(review.problem_sentences), JSON.stringify(review.suggested_rewrites), review.missing_disclaimer ? 1 : 0).run();
     await env.DB.prepare("UPDATE contents SET review_status=? WHERE id=?").bind(review.risk_level === "high" ? "needs_edit" : "passed", contentId).run();
     return json({ item: review });
+  } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
+  }
+}
+
+async function generateContentImages({ request, env }: PagesContext, contentId: number) {
+  try {
+    const body = await request.json<any>().catch(() => ({}));
+    const mode = body.mode || "all";
+    const content = await env.DB.prepare("SELECT * FROM contents WHERE id = ?").bind(contentId).first<any>();
+    if (!content) return json({ error: "内容不存在" }, 404);
+    const cards = safeJsonParse<any[]>(content.card_text, []);
+    const poster = safeJsonParse<any>(content.poster_text, null);
+    const tasks: { image_type: string; card_index: number | null; prompt: string }[] = [];
+
+    if (mode === "all" || mode === "poster") {
+      tasks.push({
+        image_type: "poster",
+        card_index: null,
+        prompt: buildPosterImagePrompt(poster, content.image_prompt),
+      });
+    }
+    if (mode === "all" || mode === "xiaohongshu") {
+      cards.slice(0, 6).forEach((card, index) => {
+        tasks.push({
+          image_type: "xiaohongshu_card",
+          card_index: index + 1,
+          prompt: buildCardImagePrompt(card, index + 1),
+        });
+      });
+    }
+
+    const results = [];
+    for (const task of tasks) {
+      const url = await callArkImage(env, task.prompt);
+      await env.DB.prepare(`
+        INSERT INTO content_images (content_id, image_type, card_index, prompt, image_url, status)
+        VALUES (?, ?, ?, ?, ?, 'generated')
+      `).bind(contentId, task.image_type, task.card_index, task.prompt, url).run();
+      results.push({ ...task, image_url: url });
+    }
+    return json({ items: results });
   } catch (error) {
     return json({ error: errorMessage(error) }, 500);
   }
@@ -692,6 +737,32 @@ async function callArk(env: Env, prompt: string) {
   return safeJsonParse(data.choices?.[0]?.message?.content, null);
 }
 
+async function callArkImage(env: Env, prompt: string) {
+  if (!env.ARK_API_KEY) {
+    throw new Error("未配置 ARK_API_KEY，无法调用火山方舟图片生成。");
+  }
+  const model = env.ARK_IMAGE_MODEL || "doubao-seedream-4-0-250828";
+  const baseUrl = (env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "");
+  const res = await fetch(`${baseUrl}/images/generations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.ARK_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      prompt,
+      response_format: "url",
+      size: "1024x1024",
+    }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`火山方舟图片生成失败：${res.status} ${errorText.slice(0, 500)}`);
+  }
+  const data = await res.json<any>();
+  const url = data.data?.[0]?.url || data.data?.[0]?.b64_json;
+  if (!url) throw new Error("火山方舟图片生成没有返回图片 URL");
+  return url;
+}
+
 async function callOpenAI(env: Env, prompt: string) {
   if (!env.OPENAI_API_KEY) {
     throw new Error("未配置 OPENAI_API_KEY，无法进行真实 AI 调用。请在 Cloudflare Pages 环境变量中添加 OPENAI_API_KEY。");
@@ -872,5 +943,28 @@ function sanitizeHealthText(text: string) {
     .replace(/调理/g, "日常参考")
     .replace(/治疗/g, "就医咨询")
     .replace(/疗效/g, "参考价值");
+}
+
+function buildPosterImagePrompt(poster: any, fallbackPrompt?: string) {
+  const title = poster?.title || "healthy Chinese meal poster";
+  const subtitle = poster?.subtitle || "";
+  return [
+    "Create a clean vertical editorial poster background for a Chinese healthy home-style recipe content card.",
+    "No text, no letters, no Chinese characters in the image.",
+    "Warm natural daylight, modern lifestyle, restrained colors, appetizing but not commercial.",
+    `Theme: ${title}. ${subtitle}`,
+    fallbackPrompt ? `Visual reference: ${fallbackPrompt}` : "",
+  ].filter(Boolean).join(" ");
+}
+
+function buildCardImagePrompt(card: any, index: number) {
+  const title = card?.title || `card ${index}`;
+  const body = card?.body || card?.text || "";
+  return [
+    "Create a square background illustration/photo for a Xiaohongshu health recipe card.",
+    "No text, no letters, no Chinese characters in the image.",
+    "Soft natural food photography or tasteful editorial illustration, clean composition with space for text overlay.",
+    `Card topic: ${title}. ${String(body).slice(0, 180)}`,
+  ].join(" ");
 }
 
