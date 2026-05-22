@@ -1,0 +1,13 @@
+name = "aigoodhealth"
+compatibility_date = "2026-05-22"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aigoodhealth-db"
+database_id = "7a46f127-5340-4af4-9162-d7482160f963"
+
+[vars]
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin123456"
+SESSION_SECRET = "change-this-before-production"
