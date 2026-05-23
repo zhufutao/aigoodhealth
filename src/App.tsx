@@ -4,7 +4,9 @@ import {
   Activity,
   BookOpenText,
   Bot,
+  Clipboard,
   Database,
+  Download,
   Edit3,
   Eye,
   FileText,
@@ -540,21 +542,24 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
         <DetailBlock title="公众号正文" content={item.body} markdown />
         <section className="detail-block">
           <h3>小红书 6 图卡</h3>
-          <div className="cards-preview">{cards.map((card, index) => {
+          <div className="cards-preview asset-list">{cards.map((card, index) => {
             const image = cardImage(index + 1);
-            return <div className={`mini-card ${image?.image_url ? "with-image" : ""}`} key={index} style={image?.image_url ? { backgroundImage: `linear-gradient(rgba(255,255,255,.72), rgba(255,255,255,.86)), url(${image.image_url})` } : undefined}><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p><small>{imageStatusText(image)}</small></div>;
+            return <div className="asset-card" key={index}>
+              <div className="mini-card"><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p><small>{imageStatusText(image)}</small></div>
+              <ImageAsset image={image} label={`小红书图卡-${index + 1}`} />
+            </div>;
           })}</div>
         </section>
         <section className="detail-block">
-          <h3>单张海报预览</h3>
-          <div className={`poster-preview ${posterImage ? "with-image" : ""}`} style={posterImage?.image_url ? { backgroundImage: `linear-gradient(rgba(255,255,255,.70), rgba(246,242,227,.88)), url(${posterImage.image_url})` } : undefined}>
-            <p className="poster-kicker">日常饮食参考</p>
-            <h2>{poster.title}</h2>
+          <h3>单张海报图片</h3>
+          <ImageAsset image={posterImage} label="单张海报" large />
+          <div className="poster-copy">
+            <h4>海报文案</h4>
+            <strong>{poster.title}</strong>
             <p>{poster.subtitle}</p>
             <ul>{poster.points.map((point: string, index: number) => <li key={index}>{point}</li>)}</ul>
             <small>{poster.disclaimer || "仅作日常饮食参考，不替代医疗建议。"}</small>
           </div>
-          <p className="meta">{imageStatusText(posterImage) || "当前为文案预览。"}</p>
         </section>
         <DetailBlock title="单张海报文案" content={item.poster_text} markdown />
         <section className="detail-block">
@@ -661,6 +666,22 @@ function ConfirmModal({ title, message, onCancel, onConfirm }: { title: string; 
           <button className="primary danger-primary" onClick={onConfirm}><Trash2 size={16} /> 确认删除</button>
         </div>
       </section>
+    </div>
+  );
+}
+
+function ImageAsset({ image, label, large }: { image?: ContentImage; label: string; large?: boolean }) {
+  if (!image?.image_url) {
+    return <div className={`image-asset empty ${large ? "large" : ""}`}><p>{imageStatusText(image)}</p></div>;
+  }
+  return (
+    <div className={`image-asset ${large ? "large" : ""}`}>
+      <img src={image.image_url} alt={label} />
+      <div className="asset-actions">
+        <a href={image.image_url} target="_blank" rel="noreferrer">打开原图</a>
+        <button onClick={() => copyText(image.image_url || "")}><Clipboard size={14} /> 复制链接</button>
+        <a href={image.image_url} download={`${label}.jpg`}><Download size={14} /> 下载图片</a>
+      </div>
     </div>
   );
 }
@@ -823,6 +844,19 @@ function imageSummary(images: ContentImage[]) {
   const running = images.filter((image) => image.status === "running" || image.status === "queued").length;
   const failed = images.filter((image) => image.status === "failed").length;
   return `图片任务 ${images.length} 个：已生成 ${generated}，进行中 ${running}，失败 ${failed}。`;
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = text;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
 }
 
 export default App;
