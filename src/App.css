@@ -357,7 +357,17 @@ pre {
 .detail-block.full { grid-column: 1 / -1; }
 .detail-block h3 {
   font-size: 16px;
+  margin-bottom: 0;
+}
+.block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 10px;
+}
+.block-head button {
+  min-height: 32px;
 }
 .detail-block pre {
   background: #f3f5ef;
@@ -394,12 +404,52 @@ pre {
 }
 .asset-card {
   display: grid;
-  grid-template-columns: minmax(0, .9fr) minmax(280px, 1.1fr);
+  grid-template-columns: 180px minmax(280px, 1fr);
   gap: 14px;
   align-items: start;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
+}
+.asset-label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+.asset-label strong {
+  color: var(--gold);
+}
+.asset-label span {
+  color: var(--ink);
+  font-weight: 700;
+}
+.card-copy-list {
+  display: grid;
+  gap: 12px;
+}
+.copy-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f5ed;
+  padding: 14px;
+}
+.copy-card span {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 900;
+}
+.copy-card h4 {
+  margin: 6px 0;
+}
+.copy-card p {
+  white-space: pre-wrap;
+  color: var(--muted);
+  line-height: 1.62;
+  margin-bottom: 0;
 }
 .mini-card {
   min-height: 140px;
@@ -540,6 +590,7 @@ pre {
   .item-card, .item-card.wide, .crawl-box { grid-template-columns: 1fr; display: grid; }
   .detail-grid, .cards-preview { grid-template-columns: 1fr; }
   .asset-card { grid-template-columns: 1fr; }
+  .copy-card { grid-template-columns: 1fr; }
   .drawer { width: 100%; }
   .pagination { align-items: flex-start; flex-direction: column; }
 }

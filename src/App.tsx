@@ -539,13 +539,17 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
         <button className="primary" onClick={() => generateImages("all")}><Sparkles size={15} /> 全部生成图片</button>
       </div>
       <div className="detail-grid">
-        <DetailBlock title="公众号正文" content={item.body} markdown />
+        <DetailBlock title="公众号正文" content={item.body} markdown copyable />
         <section className="detail-block">
-          <h3>小红书 6 图卡</h3>
+          <BlockHead title="小红书 6 图卡文案" copyText={cards.map((card, index) => `图${index + 1}：${cardTitle(card)}\n${cardBody(card)}`).join("\n\n")} />
+          <div className="card-copy-list">{cards.map((card, index) => <div className="copy-card" key={index}><div><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p></div><button onClick={() => copyText(`图${index + 1}：${cardTitle(card)}\n${cardBody(card)}`)}><Clipboard size={14} /> 复制本图文案</button></div>)}</div>
+        </section>
+        <section className="detail-block">
+          <h3>小红书 6 图卡图片</h3>
           <div className="cards-preview asset-list">{cards.map((card, index) => {
             const image = cardImage(index + 1);
             return <div className="asset-card" key={index}>
-              <div className="mini-card"><span>图 {index + 1}</span><h4>{cardTitle(card)}</h4><p>{cardBody(card)}</p><small>{imageStatusText(image)}</small></div>
+              <div className="asset-label"><strong>图 {index + 1}</strong><span>{cardTitle(card)}</span><small>{imageStatusText(image)}</small></div>
               <ImageAsset image={image} label={`小红书图卡-${index + 1}`} />
             </div>;
           })}</div>
@@ -553,28 +557,29 @@ function ContentDetail({ detail, onClose, runTask, onReload }: { detail: any; on
         <section className="detail-block">
           <h3>单张海报图片</h3>
           <ImageAsset image={posterImage} label="单张海报" large />
+        </section>
+        <section className="detail-block">
+          <BlockHead title="单张海报文案" copyText={posterTextForCopy(poster)} />
           <div className="poster-copy">
-            <h4>海报文案</h4>
             <strong>{poster.title}</strong>
             <p>{poster.subtitle}</p>
             <ul>{poster.points.map((point: string, index: number) => <li key={index}>{point}</li>)}</ul>
             <small>{poster.disclaimer || "仅作日常饮食参考，不替代医疗建议。"}</small>
           </div>
         </section>
-        <DetailBlock title="单张海报文案" content={item.poster_text} markdown />
         <section className="detail-block">
-          <h3>一周食谱/食谱表</h3>
+          <BlockHead title="一周食谱/食谱表" copyText={JSON.stringify(recipe, null, 2)} />
           <pre>{JSON.stringify(recipe, null, 2)}</pre>
         </section>
         <section className="detail-block">
-          <h3>图片区域</h3>
+          <BlockHead title="图片 Prompt" copyText={item.image_prompt || ""} />
           <div className="image-placeholder">
             <p>{imageSummary(images)}</p>
           </div>
           <pre>{item.image_prompt || "暂无图片 Prompt"}</pre>
         </section>
         <section className="detail-block">
-          <h3>风险提醒</h3>
+          <BlockHead title="风险提醒" copyText={JSON.stringify(warnings, null, 2)} />
           <pre>{JSON.stringify(warnings, null, 2)}</pre>
         </section>
         <section className="detail-block full">
@@ -697,8 +702,12 @@ function Drawer({ title, children, onClose, wide }: { title: string; children: R
   );
 }
 
-function DetailBlock({ title, content, markdown }: { title: string; content: string; markdown?: boolean }) {
-  return <section className="detail-block" data-color-mode="light"><h3>{title}</h3>{markdown ? <div className="markdown-view"><MDEditor.Markdown source={content || "暂无"} /></div> : <pre>{content || "暂无"}</pre>}</section>;
+function DetailBlock({ title, content, markdown, copyable }: { title: string; content: string; markdown?: boolean; copyable?: boolean }) {
+  return <section className="detail-block" data-color-mode="light"><BlockHead title={title} copyText={copyable ? content : undefined} />{markdown ? <div className="markdown-view"><MDEditor.Markdown source={content || "暂无"} /></div> : <pre>{content || "暂无"}</pre>}</section>;
+}
+
+function BlockHead({ title, copyText: text }: { title: string; copyText?: string }) {
+  return <div className="block-head"><h3>{title}</h3>{text !== undefined && <button onClick={() => copyText(text)}><Clipboard size={14} /> 复制</button>}</div>;
 }
 
 function RichEditor({ value, onChange, height = 420 }: { value: string; onChange: (value: string) => void; height?: number }) {
@@ -827,6 +836,10 @@ function parsePoster(text?: string) {
       disclaimer: lines.find((line) => /不替代|就医|参考/.test(line)) || fallback.disclaimer,
     };
   }
+}
+
+function posterTextForCopy(poster: { title: string; subtitle: string; points: string[]; disclaimer: string }) {
+  return [poster.title, poster.subtitle, ...poster.points.map((point) => `- ${point}`), poster.disclaimer].filter(Boolean).join("\n");
 }
 
 function imageStatusText(image?: ContentImage) {
